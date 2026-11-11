@@ -3,7 +3,7 @@ import { AlertTriangle, DatabaseBackup, KeyRound, LogOut, Mail, Plus, ShieldChec
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
-interface U { id: number; email: string; name: string; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
+interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
 interface Audit { id: number; action: string; entity: string | null; entity_id: string | null; ip: string | null; created_at: string; user_name: string | null }
 interface Status { storageEnabled: boolean; timezone: string; backupSchedule: string; lastBackup: { created_at: string; size: number } | null }
 
@@ -59,21 +59,39 @@ export default function Settings() {
 
 function EmailPrefs() {
   const toast = useToast();
-  const { data, setData } = useData<{ user: { email_notifications: boolean } }>('/auth/me');
+  const { can } = useAuth();
+  const { data, setData } = useData<{ user: { email: string; notify_email: string | null; email_notifications: boolean } }>('/auth/me');
+  const [addr, setAddr] = useState<string | null>(null);
   if (!data) return null;
-  const on = data.user.email_notifications !== false;
-  async function toggle() {
+  const u = data.user;
+  const on = u.email_notifications !== false;
+  const current = u.notify_email || u.email;
+  async function save(body: { email_notifications?: boolean; notify_email?: string }, msg: string) {
     try {
-      await api.patch('/auth/preferences', { email_notifications: !on });
-      setData({ user: { ...data!.user, email_notifications: !on } });
-      toast(!on ? 'Email notifications on' : 'Email notifications off — you will still see them in the app');
+      await api.patch('/auth/preferences', body);
+      setData({ user: { ...u, ...body, notify_email: body.notify_email !== undefined ? body.notify_email || null : u.notify_email } });
+      toast(msg);
+      setAddr(null);
     } catch (e) { toast((e as Error).message, true); }
   }
   return (
     <div className="panel panel-pad" style={{ marginBottom: 16 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div><h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email notifications</h2><p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders.</p></div>
-        <label className="check"><input type="checkbox" checked={on} onChange={toggle} /> Email me</label>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email notifications</h2>
+          <p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders are sent to <b>{current}</b>.
+            {!can('admin') && ' Only the admin can change this address.'}</p>
+          {can('admin') && (addr === null
+            ? <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setAddr(u.notify_email || '')}>Change notification email</button>
+            : (
+              <form className="row" style={{ marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); save({ notify_email: addr.trim() }, addr.trim() ? `Notifications will go to ${addr.trim()}` : 'Notifications will go to your login email'); }}>
+                <input className="input" type="email" style={{ maxWidth: 300 }} value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={`Leave empty to use ${u.email}`} aria-label="Notification email" autoFocus />
+                <button className="btn btn-primary btn-sm">Save</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAddr(null)}>Cancel</button>
+              </form>
+            ))}
+        </div>
+        <label className="check"><input type="checkbox" checked={on} onChange={() => save({ email_notifications: !on }, !on ? 'Email notifications on' : 'Email notifications off — you will still see them in the app')} /> Email me</label>
       </div>
     </div>
   );
@@ -88,7 +106,7 @@ function EmailAndAi() {
   const s = status.data;
   async function test() {
     setBusy(true);
-    try { await api.post('/system/test-email'); toast('Test email sent — check your inbox'); } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); log.reload(); }
+    try { const r = await api.post<{ to: string }>('/system/test-email'); toast(`Test email sent to ${r.to}`); } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); log.reload(); }
   }
   return (
     <div className="grid cols-2" style={{ marginBottom: 16 }}>
@@ -205,64 +223,91 @@ function BackupBox() {
   );
 }
 
+interface PersonForm { id?: number; name: string; email: string; notify_email: string; role: Role; password: string; active?: boolean }
+
 function UsersPanel() {
   const toast = useToast();
   const { user } = useAuth();
   const { data, reload } = useData<U[]>('/users');
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: '', email: '', role: 'manager' as Role, password: '' });
+  const [editing, setEditing] = useState<PersonForm | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function add(e: FormEvent) {
+  async function save(e: FormEvent) {
     e.preventDefault();
-    try { await api.post('/users', f); toast(`Added ${f.name}`); setAdding(false); setF({ name: '', email: '', role: 'manager', password: '' }); reload(); } catch (err) { toast((err as Error).message, true); }
+    if (!editing) return;
+    setBusy(true);
+    try {
+      if (editing.id) {
+        const cur = data!.find((u) => u.id === editing.id)!;
+        const body: Record<string, unknown> = { name: editing.name, notify_email: editing.notify_email.trim() };
+        if (editing.email.trim().toLowerCase() !== cur.email) body.email = editing.email.trim();
+        if (editing.id !== user?.id && editing.role !== cur.role) body.role = editing.role;
+        if (editing.password) body.password = editing.password;
+        await api.patch(`/users/${editing.id}`, body);
+        toast(`${editing.name} updated`);
+      } else {
+        await api.post('/users', { name: editing.name, email: editing.email.trim(), notify_email: editing.notify_email.trim(), role: editing.role, password: editing.password });
+        toast(`${editing.name} added. Share the login email and temporary password with them privately.`);
+      }
+      setEditing(null);
+      reload();
+    } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
   }
-  async function patch(u: U, body: Partial<U> & { password?: string }) {
-    try { await api.patch(`/users/${u.id}`, body); toast('User updated'); reload(); } catch (err) { toast((err as Error).message, true); }
+  async function toggleActive(u: U) {
+    try { await api.patch(`/users/${u.id}`, { active: !u.active }); toast(u.active ? `${u.name} disabled` : `${u.name} enabled`); reload(); } catch (e) { toast((e as Error).message, true); }
   }
-  function changeEmail(u: U) {
-    const e = window.prompt(`New sign-in email for ${u.name}:`, u.email);
-    if (e && e !== u.email) patch(u, { email: e });
-  }
-  function resetPw(u: U) {
-    const p = window.prompt(`New password for ${u.name} (10+ characters, letters and numbers):`);
-    if (p) patch(u, { password: p });
-  }
+  const tempPassword = () => {
+    const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const r = new Uint32Array(12); crypto.getRandomValues(r);
+    return Array.from(r, (n) => a[n % a.length]).join('') + '7';
+  };
+  const isNew = editing && !editing.id;
 
   return (
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head">
-        <div><h2>Team</h2><p>Admins control everything. Social media managers see only their assigned products and can't change security settings. Viewers can only look.</p></div>
-        <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus /> Add person</button>
+        <div><h2>Team</h2><p>Each person signs in with their login email. Notifications go to their notification email (or the login email if none is set).</p></div>
+        <button className="btn btn-primary" onClick={() => setEditing({ name: '', email: '', notify_email: '', role: 'manager', password: tempPassword() })}><Plus /> Add person</button>
       </div>
       <div className="table-wrap" style={{ padding: 8 }}>
         <table className="t">
-          <thead><tr><th>Name</th><th>Role</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Login email</th><th>Notifications to</th><th>Role</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
           <tbody>{data?.map((u) => (
             <tr key={u.id}>
-              <td>{u.name}<div className="acct-user">{u.email}</div></td>
-              <td>
-                <select className="input" style={{ width: 130, height: 32 }} value={u.role} disabled={u.id === user?.id} onChange={(e) => patch(u, { role: e.target.value as Role })} aria-label={`Role for ${u.name}`}>
-                  <option value="admin">{ROLE_LABEL.admin}</option><option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option>
-                </select>
-              </td>
+              <td><b>{u.name}</b>{u.id === user?.id && <span className="faint"> (you)</span>}</td>
+              <td className="muted">{u.email}</td>
+              <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge">Emails off</span></div>}</td>
+              <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
               <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn btn-sm btn-ghost" onClick={() => changeEmail(u)}>Change email</button>
-                <button className="btn btn-sm btn-ghost" onClick={() => resetPw(u)}>Reset password</button>
-                {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => patch(u, { active: !u.active })}>{u.active ? 'Disable' : 'Enable'}</button>}
+                <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
+                {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => toggleActive(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
               </td>
             </tr>
           ))}</tbody>
         </table>
       </div>
-      {adding && (
-        <Modal title="Add a team member" onClose={() => setAdding(false)} footer={<><button className="btn" onClick={() => setAdding(false)}>Cancel</button><button className="btn btn-primary" form="user-form">Add person</button></>}>
-          <form id="user-form" className="form-grid" onSubmit={add}>
-            <div className="field"><label htmlFor="un">Name</label><input id="un" className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-            <div className="field"><label htmlFor="ue">Email</label><input id="ue" type="email" className="input" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-            <div className="field"><label htmlFor="ur">Role</label><select id="ur" className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option><option value="admin">{ROLE_LABEL.admin}</option></select></div>
-            <div className="field"><label htmlFor="up">Temporary password</label><input id="up" className="input" required minLength={10} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /><span className="hint">Share it privately. They must choose their own password at first sign-in.</span></div>
+      {editing && (
+        <Modal title={isNew ? 'Add a team member' : `Edit ${editing.name}`} onClose={() => setEditing(null)}
+          footer={<><button className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" form="person-form" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add person' : 'Save changes'}</button></>}>
+          <form id="person-form" className="form-grid" onSubmit={save}>
+            <div className="field"><label htmlFor="pnm">Name</label><input id="pnm" className="input" required value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Maryam Batool" /></div>
+            <div className="field"><label htmlFor="prl">Role</label>
+              <select id="prl" className="input" value={editing.role} disabled={editing.id === user?.id} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })}>
+                <option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option><option value="admin">{ROLE_LABEL.admin}</option>
+              </select>
+            </div>
+            <div className="field"><label htmlFor="pem">Login email</label><input id="pem" type="email" className="input" required value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} /><span className="hint">Used to sign in.</span></div>
+            <div className="field"><label htmlFor="pne">Notification email</label><input id="pne" type="email" className="input" value={editing.notify_email} onChange={(e) => setEditing({ ...editing, notify_email: e.target.value })} placeholder="Same as login email" /><span className="hint">Tasks, reminders and replies are sent here.</span></div>
+            <div className="field full">
+              <label htmlFor="ppw">{isNew ? 'Temporary password' : 'Reset password (optional)'}</label>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input id="ppw" className="input" required={!!isNew} minLength={editing.password ? 10 : undefined} value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} placeholder={isNew ? '' : 'Leave empty to keep the current password'} autoComplete="off" />
+                <button type="button" className="btn" onClick={() => setEditing({ ...editing, password: tempPassword() })}>Generate</button>
+              </div>
+              <span className="hint">{isNew ? 'Share it privately — they must choose their own password at first sign-in.' : 'If you reset it, they must choose a new one at next sign-in.'}</span>
+            </div>
           </form>
         </Modal>
       )}

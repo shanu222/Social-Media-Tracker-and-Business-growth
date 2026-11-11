@@ -67,7 +67,7 @@ router.get(
   '/me',
   requireAuth,
   ah(async (req, res) => {
-    const u = await one('SELECT id, email, name, role, must_change_password, email_notifications FROM users WHERE id = $1', [req.user.id]);
+    const u = await one('SELECT id, email, name, role, must_change_password, email_notifications, notify_email FROM users WHERE id = $1', [req.user.id]);
     res.json({ user: u });
   })
 );
@@ -102,8 +102,20 @@ router.patch(
   '/preferences',
   requireAuth,
   ah(async (req, res) => {
-    const b = parse(z.object({ email_notifications: z.boolean() }), req.body);
-    await query('UPDATE users SET email_notifications = $2 WHERE id = $1', [req.user.id, b.email_notifications]);
+    const b = parse(z.object({
+      email_notifications: z.boolean().optional(),
+      notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(),
+    }), req.body);
+    // Changing where emails go is an admin-only setting (managers' addresses are managed by the admin).
+    if (b.notify_email !== undefined && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Ask the admin to change where your notifications are sent.' });
+    }
+    await query(
+      `UPDATE users SET email_notifications = coalesce($2, email_notifications),
+         notify_email = CASE WHEN $3::boolean THEN nullif($4, '') ELSE notify_email END WHERE id = $1`,
+      [req.user.id, b.email_notifications ?? null, b.notify_email !== undefined, b.notify_email ?? null]
+    );
+    if (b.notify_email !== undefined) await audit(req, 'user.notify_email_changed', 'user', req.user.id);
     res.json({ ok: true });
   })
 );

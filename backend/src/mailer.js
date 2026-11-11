@@ -83,9 +83,10 @@ export async function sendEmail({ to, subject, html, text, kind = null }) {
 
 /** Email a user by id if they are active and haven't turned emails off. Fire-and-forget safe. */
 export async function emailUser(userId, msg) {
-  const u = await one('SELECT email, name, active, email_notifications FROM users WHERE id = $1', [userId]).catch(() => null);
+  // Notifications go to the person's notification email (set by the admin), else their login email.
+  const u = await one('SELECT email, notify_email, name, active, email_notifications FROM users WHERE id = $1', [userId]).catch(() => null);
   if (!u || !u.active || !u.email_notifications) return false;
-  return sendEmail({ ...msg, to: u.email });
+  return sendEmail({ ...msg, to: u.notify_email || u.email });
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

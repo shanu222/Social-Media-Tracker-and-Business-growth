@@ -138,6 +138,23 @@ async function bootstrapManager() {
   console.log(`[setup] Created Social Media Manager login ${email} (must change password on first sign-in).`);
 }
 
+/** ADMIN_NOTIFY_EMAIL / MANAGER_NOTIFY_EMAIL fill in notification addresses once (UI changes win afterwards). */
+async function bootstrapNotifyEmails() {
+  const pairs = [
+    [process.env.ADMIN_EMAIL, process.env.ADMIN_NOTIFY_EMAIL, process.env.ADMIN_NAME],
+    [process.env.MANAGER_EMAIL, process.env.MANAGER_NOTIFY_EMAIL, process.env.MANAGER_NAME],
+  ];
+  for (const [login, notifyTo, name] of pairs) {
+    if (!login || !notifyTo) continue;
+    const u = await one(
+      `UPDATE users SET notify_email = lower($2), name = CASE WHEN name IN ('Owner', 'Social Media Manager') AND $3::text IS NOT NULL THEN $3 ELSE name END
+       WHERE lower(email) = lower($1) AND notify_email IS NULL RETURNING email`,
+      [login.trim(), notifyTo.trim(), name || null]
+    );
+    if (u) console.log(`[setup] Notifications for ${u.email} will go to ${notifyTo}`);
+  }
+}
+
 async function bootstrapAdmin() {
   const { n } = await one('SELECT count(*)::int AS n FROM users');
   if (n > 0) return;
@@ -158,6 +175,7 @@ async function start() {
   await migrate();
   await bootstrapAdmin();
   await bootstrapManager();
+  await bootstrapNotifyEmails();
   const tz = { timezone: config.timezone };
   // Pull follower counts from official APIs every 6 hours
   cron.schedule(process.env.SYNC_CRON || '15 */6 * * *', () =>

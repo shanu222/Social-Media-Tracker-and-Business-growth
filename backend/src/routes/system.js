@@ -39,8 +39,10 @@ router.get('/emails', requireRole('admin'), ah(async (_req, res) => {
 router.post('/test-email', requireRole('admin'), ah(async (req, res) => {
   const { to } = parse(z.object({ to: z.string().email().optional() }), req.body || {});
   if (!emailProvider()) return res.status(503).json({ error: 'Email is not set up. Add RESEND_API_KEY (or SMTP_*) and EMAIL_FROM on Railway.' });
+  const me = await one('SELECT email, notify_email FROM users WHERE id = $1', [req.user.id]);
+  const target = to || me.notify_email || me.email;
   const ok = await sendEmail({
-    to: to || req.user.email, kind: 'test', subject: 'Growth Desk test email',
+    to: target, kind: 'test', subject: 'Growth Desk test email',
     html: `<p>Email delivery from Growth Desk works.</p><p><a href="${appUrl()}">Open Growth Desk</a></p>`,
     text: `Email delivery from Growth Desk works. ${appUrl()}`,
   });
@@ -48,7 +50,7 @@ router.post('/test-email', requireRole('admin'), ah(async (req, res) => {
     const last = await one('SELECT error FROM email_log ORDER BY id DESC LIMIT 1');
     return res.status(502).json({ error: `Sending failed: ${last?.error || 'unknown error'}` });
   }
-  res.json({ ok: true });
+  res.json({ ok: true, to: target });
 }));
 
 /** AI key health for the admin. */

@@ -351,6 +351,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications BOOLEAN NOT NULL 
 
 CREATE TABLE IF NOT EXISTS job_runs (key TEXT NOT NULL, run_on DATE NOT NULL, PRIMARY KEY (key, run_on));
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_email TEXT;
+
 CREATE TABLE IF NOT EXISTS ai_status (
   provider    TEXT PRIMARY KEY,
   state       TEXT NOT NULL,
