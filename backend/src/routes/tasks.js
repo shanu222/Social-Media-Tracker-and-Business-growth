@@ -5,7 +5,7 @@ import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { requireProductAccess, productIdsFor } from '../access.js';
 import { notify, productAudience, adminIds } from '../notify.js';
-import { emailUser, taskEmail } from '../mailer.js';
+import { emailUser, emailUserResult, taskEmail } from '../mailer.js';
 import { ah, parse, zDate, today, addDays } from '../util.js';
 import { PLATFORMS } from './accounts.js';
 import { contentTypeFor } from './library.js';
@@ -189,6 +189,11 @@ productTasks.put('/:taskId(\\d+)', requireRole('admin'), ah(async (req, res) => 
     return rows[0];
   });
 
+  // New deadline or new person: the one-time reminders apply afresh
+  if ((prev.due_date || null) !== (t.due_date || null) || prev.assigned_to !== t.assigned_to) {
+    await query('DELETE FROM task_reminders WHERE task_id = $1', [t.id]);
+  }
+
   if (prev.status !== 'draft') {
     const changes = [];
     const fmtD = (d) => (d ? new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : 'none');
@@ -221,6 +226,24 @@ productTasks.post('/:taskId(\\d+)/send', requireRole('admin'), ah(async (req, re
   await announce(t, req.user.id, { kind: 'task', title: 'New task assigned', heading: 'You have a new task', intro: `${req.user.name} assigned you a task.` });
   await audit(req, 'task.sent', 'task', t.id, { title: t.title }, req.productId);
   res.json(t);
+}));
+
+/** Admin only: email the task to its assignee (or everyone on the product) again. */
+productTasks.post('/:taskId(\\d+)/remind', requireRole('admin'), ah(async (req, res) => {
+  const t = await one('SELECT * FROM tasks WHERE id = $1 AND product_id = $2', [Number(req.params.taskId), req.productId]);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!['todo', 'in_progress'].includes(t.status)) return res.status(400).json({ error: 'Only open tasks can be sent again.' });
+  const product = await one('SELECT name FROM products WHERE id = $1', [t.product_id]);
+  const to = (t.assigned_to ? [t.assigned_to] : await productAudience(t.product_id)).filter((u) => u !== req.user.id);
+  if (!to.length) return res.status(400).json({ error: 'Nobody to send this to — assign the task first.' });
+  const title = 'Reminder from the admin';
+  await notify(to, { kind: 'reminder', title, body: t.title, link: taskLink(t), productId: t.product_id }, req.user.id);
+  const mail = taskEmail({ heading: 'Reminder about your task', intro: `${req.user.name} sent you a reminder about this task. It is ${t.progress}% complete.`, task: t, productName: product.name, link: taskLink(t) });
+  // The admin chose to send this, so it goes out even if the person turned routine emails off
+  const results = await Promise.all(to.map((u) => emailUserResult(u, { subject: `${title} — ${t.title}`, kind: 'reminder', ...mail }, { important: true, ref: `task:${t.id}` })));
+  await systemNote(t.id, req.user.id, `${req.user.name} sent a reminder email.`);
+  await audit(req, 'task.reminded', 'task', t.id, { title: t.title }, req.productId);
+  res.json({ attempted: to.length, sent: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).map((r) => r.error) });
 }));
 
 async function loadForWork(req, res) {
@@ -395,9 +418,12 @@ globalTasks.get('/all', requireRole('admin'), ah(async (req, res) => {
 
 /* ---------------- reminder job ---------------- */
 
+/** Each automatic reminder goes out once per task, ever. Only the admin can send one again (POST /:taskId/remind). */
 async function once(taskId, kind) {
   const r = await query(
-    'INSERT INTO task_reminders (task_id, kind, sent_on) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING task_id',
+    `INSERT INTO task_reminders (task_id, kind, sent_on)
+     SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM task_reminders WHERE task_id = $1 AND kind = $2)
+     ON CONFLICT DO NOTHING RETURNING task_id`,
     [taskId, kind, today()]
   );
   return r.rowCount > 0;
@@ -407,8 +433,9 @@ async function once(taskId, kind) {
  * Runs every morning:
  *  - upcoming: due in REMINDER_DAYS_BEFORE days (default 2) and tomorrow → assignee
  *  - due today → assignee
- *  - overdue → assignee + admins (day 1, then every 3 days)
- *  - pending: sent 3+ days ago and not started → assignee
+ *  - overdue → assignee + admins (once)
+ *  - pending: sent 3+ days ago and not started → assignee (once)
+ * Nothing repeats automatically; the admin sends again from the task.
  *  - daily digest email to admins
  */
 export async function sendDueReminders() {
@@ -437,13 +464,13 @@ export async function sendDueReminders() {
         await send(`upcoming_${daysLeft}`, `Due in ${daysLeft} day${daysLeft > 1 ? 's' : ''}`, 'Deadline coming up', `This task is due in ${daysLeft} day${daysLeft > 1 ? 's' : ''} and is ${t.progress}% complete.`);
       } else if (daysLeft === 0) {
         await send('due_today', 'Due today', 'This task is due today', `This task is due today and is ${t.progress}% complete.`, t.progress < 50);
-      } else if (daysLeft < 0 && ((-daysLeft) === 1 || (-daysLeft) % 3 === 0)) {
+      } else if (daysLeft < 0) {
         await send('overdue', `Overdue by ${-daysLeft} day${-daysLeft > 1 ? 's' : ''}`, 'This task is overdue', `This task was due ${-daysLeft} day${-daysLeft > 1 ? 's' : ''} ago and is ${t.progress}% complete. Update its progress or ask the admin for a new date.`, true);
       }
     }
     if (t.status === 'todo' && t.sent_at && t.progress === 0 && new Date(t.sent_at) < new Date(Date.now() - 3 * 86400000)) {
       const ageDays = Math.floor((Date.now() - new Date(t.sent_at)) / 86400000);
-      if (ageDays % 3 === 0) await send('pending', 'Not started yet', 'A task is waiting for you', `This task was assigned ${ageDays} days ago and hasn't been started.`);
+      await send('pending', 'Not started yet', 'A task is waiting for you', `This task was assigned ${ageDays} days ago and hasn't been started.`);
     }
   }
   await adminDigest();

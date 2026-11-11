@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  CalendarClock, Check, ChevronDown, HelpCircle, Link as LinkIcon, MessageSquare, Paperclip, Pencil, Play, Plus, RotateCcw, Send, Sparkles, Trash2, X,
+  BellRing, CalendarClock, Check, ChevronDown, HelpCircle, Link as LinkIcon, MessageSquare, Paperclip, Pencil, Play, Plus, RotateCcw, Send, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, ROLE_LABEL, type Role } from '../../lib';
@@ -201,6 +201,11 @@ export function TaskDetail({ productId, taskId, people, onClose, onChanged }: { 
     <Modal title={t.product_name} onClose={onClose} wide footer={
       <>
         {can('admin') && <button className="btn btn-ghost btn-danger" style={{ marginRight: 'auto' }} onClick={() => window.confirm(`Delete "${t.title}"? Files and links stay in the library.`) && run(async () => { await api.del(`/products/${productId}/tasks/${t.id}`); onClose(); }, 'Task deleted')}><Trash2 size={15} /> Delete</button>}
+        {can('admin') && isOpen(t) && <button className="btn" disabled={busy} title="Email this task to the assignee again" onClick={() => window.confirm('Send the reminder email again?') && run(async () => {
+          const r = await api.post<{ attempted: number; sent: number; failed: string[] }>(`/products/${productId}/tasks/${t.id}/remind`, {});
+          if (r.failed.length) throw new Error(`Sent ${r.sent} of ${r.attempted}. ${r.failed[0]}`);
+          toast(`Reminder emailed to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}`);
+        })}><BellRing size={15} /> Send reminder again</button>}
         {can('admin') && <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} /> {t.status === 'draft' ? 'Review & send' : 'Edit'}</button>}
         {mine && t.status === 'todo' && <button className="btn" disabled={busy} onClick={() => run(() => api.patch(`/products/${productId}/tasks/${t.id}/status`, { status: 'in_progress' }), 'Started')}><Play size={15} /> Start</button>}
         {mine && isOpen(t) && <button className="btn btn-primary" disabled={busy} onClick={() => setCompleting(true)}><Check size={15} /> Mark completed</button>}

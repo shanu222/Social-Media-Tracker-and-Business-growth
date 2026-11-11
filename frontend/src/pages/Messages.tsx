@@ -193,9 +193,10 @@ function Announcements({ people, onBack, onRead }: { people: Person[]; onBack: (
   async function ack(a: Ann) {
     try { await api.post(`/team/announcements/${a.id}/ack`, {}); toast('Confirmed'); load(); } catch (e) { toast((e as Error).message, true); }
   }
-  async function resend(a: Ann) {
+  async function resend(a: Ann, onlyFailed = true) {
+    if (!onlyFailed && !window.confirm(`Send "${a.title}" by email to everyone again?`)) return;
     try {
-      const r = await api.post<{ attempted: number; sent: number; failed: string[] }>(`/team/announcements/${a.id}/resend`, { onlyFailed: true });
+      const r = await api.post<{ attempted: number; sent: number; failed: string[] }>(`/team/announcements/${a.id}/resend`, { onlyFailed });
       toast(r.failed.length ? `Sent ${r.sent} of ${r.attempted}. ${r.failed[0]}` : `Email sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}`, r.failed.length > 0);
       load();
     } catch (e) { toast((e as Error).message, true); }
@@ -281,6 +282,7 @@ function Announcements({ people, onBack, onRead }: { people: Person[]; onBack: (
                         ))}
                       </ul>
                       {(a.people || []).some((p) => p.email && p.email.status !== 'sent') && <button className="btn btn-sm" onClick={() => resend(a)}><RefreshCw size={13} /> Resend email</button>}
+                      {!a.cancelled && <button className="btn btn-sm" onClick={() => resend(a, false)}><RefreshCw size={13} /> Send again to everyone</button>}
                     </div>
                     <span style={{ marginLeft: 'auto' }} className="row">
                       {!a.cancelled && <button className="btn btn-sm" onClick={() => setEditing(a)}><Pencil size={13} /> Edit</button>}
