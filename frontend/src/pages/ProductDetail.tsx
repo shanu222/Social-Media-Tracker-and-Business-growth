@@ -57,7 +57,7 @@ export default function ProductDetail() {
     <>
       <Link to="/products" className="btn btn-ghost btn-sm" style={{ marginBottom: 10, marginLeft: -8 }}><ChevronLeft size={16} /> Products</Link>
       <div className="prod-hero">
-        <div className="img" style={{ ['--pcol' as string]: p.color || '#172133', backgroundImage: p.image_url ? `url("${p.image_url}")` : undefined }}>
+        <div className="img" style={{ ['--pcol' as string]: p.color || '#0a1a3d', backgroundImage: p.image_url ? `url("${p.image_url}")` : undefined }}>
           {!p.image_url && p.name.slice(0, 1).toUpperCase()}
           {can('admin') && <button onClick={() => imgInput.current?.click()} aria-label="Change product image">Change image</button>}
           <input ref={imgInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
@@ -193,17 +193,17 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
 }
 
 const ACTION_TEXT: Record<string, [string, string]> = {
-  'product.created': ['created this product', '#0b7a62'], 'product.updated': ['updated the product details', '#5e6a7c'],
-  'product.image_updated': ['changed the product image', '#5e6a7c'], 'task.created': ['shared new content', '#3346b0'],
-  'task.updated': ['edited content', '#5e6a7c'], 'task.in_progress': ['started working on', '#a86a12'], 'task.done': ['marked as posted', '#0b7a62'],
+  'product.created': ['created this product', '#0b7f66'], 'product.updated': ['updated the product details', '#5e6a7c'],
+  'product.image_updated': ['changed the product image', '#5e6a7c'], 'task.created': ['shared new content', '#1a5fe0'],
+  'task.updated': ['edited content', '#5e6a7c'], 'task.in_progress': ['started working on', '#a86a12'], 'task.done': ['marked as posted', '#0b7f66'],
   'task.todo': ['reopened', '#a86a12'], 'task.cancelled': ['cancelled', '#5e6a7c'], 'task.deleted': ['deleted content', '#b8322a'],
-  'post.recorded': ['recorded a published post', '#0b7a62'], 'post.deleted': ['removed a post record', '#b8322a'],
-  'file.uploaded': ['uploaded a file', '#3346b0'],
-  'link.added': ['added a link', '#3346b0'], 'link.deleted': ['removed a link', '#b8322a'],
-  'task.drafted': ['saved a draft task', '#5e6a7c'], 'task.sent': ['sent a task', '#3346b0'],
-  'task.progress': ['updated progress on', '#2fa585'], 'task.comment': ['commented on', '#3346b0'],
+  'post.recorded': ['recorded a published post', '#0b7f66'], 'post.deleted': ['removed a post record', '#b8322a'],
+  'file.uploaded': ['uploaded a file', '#1a5fe0'],
+  'link.added': ['added a link', '#1a5fe0'], 'link.deleted': ['removed a link', '#b8322a'],
+  'task.drafted': ['saved a draft task', '#5e6a7c'], 'task.sent': ['sent a task', '#1a5fe0'],
+  'task.progress': ['updated progress on', '#2fa585'], 'task.comment': ['commented on', '#1a5fe0'],
   'task.clarification': ['asked for clarification on', '#a86a12'], 'ai.suggested': ['asked AI for task ideas', '#7a3fb0'],
-  'account.created': ['added a social account', '#0b7a62'], 'account.synced': ['synced account numbers', '#8a95a5'], 'file.deleted': ['deleted a file', '#b8322a'], 'file.downloaded': ['downloaded a file', '#8a95a5'],
+  'account.created': ['added a social account', '#0b7f66'], 'account.synced': ['synced account numbers', '#8a95a5'], 'file.deleted': ['deleted a file', '#b8322a'], 'file.downloaded': ['downloaded a file', '#8a95a5'],
 };
 
 function Activity({ productId, limit }: { productId: number; limit?: number }) {

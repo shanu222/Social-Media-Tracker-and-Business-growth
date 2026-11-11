@@ -49,7 +49,7 @@ export default function MyWork() {
 
       <div className="prod-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', marginBottom: 22 }}>
         {(products.data || []).map((p) => (
-          <Link key={p.id} to={`/products/${p.id}`} className="panel panel-pad" style={{ textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', gap: 6, borderTop: `4px solid ${p.color || '#172133'}` }}>
+          <Link key={p.id} to={`/products/${p.id}`} className="panel panel-pad" style={{ textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', gap: 6, borderTop: `4px solid ${p.color || '#0a1a3d'}` }}>
             <h3>{p.name}</h3>
             <div className="row" style={{ gap: 6 }}>
               <span className="badge badge-info">{p.open_tasks} open</span>

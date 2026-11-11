@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Flame, AlertTriangle } from 'lucide-react';
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CHART } from '../brand';
 import { useData, Loading, ErrorBox, fmt, signed, tone, prettyDate, AccountLabel, Stars, compact, useAuth } from '../lib';
 
 interface Acc {
@@ -36,7 +37,7 @@ function Delta({ cur, prev, suffix = '' }: { cur: number | null; prev: number | 
 export default function Dashboard() {
   const [days, setDays] = useState(30);
   const { data, error, loading, reload } = useData<Dash>(`/dashboard?days=${days}`);
-  const products = useData<{ id: number; name: string; account_count: number }[]>('/products');
+  const products = useData<{ id: number; name: string; account_count: number; followers: number | string | null; color: string | null }[]>('/products');
   const { user, can } = useAuth();
 
   const chart = useMemo(() => {
@@ -59,6 +60,7 @@ export default function Dashboard() {
   const firstName = user?.name.split(' ')[0];
   const maxDelta = Math.max(1, ...data.accounts.flatMap((a) => a.deltas.map((d) => d ?? 0)));
   const hasAccounts = data.accounts.length > 0;
+  const byProduct = (products.data || []).filter((p) => p.account_count > 0).map((p) => ({ id: p.id, name: p.name, followers: Number(p.followers) || 0 })).sort((a, b) => b.followers - a.followers);
 
   return (
     <>
@@ -152,17 +154,21 @@ export default function Dashboard() {
           <div style={{ height: 290, padding: '12px 8px 8px 0' }}>
             <ResponsiveContainer>
               <ComposedChart data={chart} margin={{ left: 0, right: 8, top: 8 }}>
-                <CartesianGrid stroke="#edf0f3" vertical={false} />
+                <defs>
+                  <linearGradient id="gBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#16b97a" /><stop offset="1" stopColor="#12b5e8" stopOpacity={0.75} /></linearGradient>
+                  <linearGradient id="gArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1a5fe0" stopOpacity={0.18} /><stop offset="1" stopColor="#1a5fe0" stopOpacity={0} /></linearGradient>
+                </defs>
+                <CartesianGrid stroke="#e9eef5" vertical={false} />
                 <XAxis dataKey="date" tickFormatter={(d) => prettyDate(d, { day: 'numeric', month: 'short' })} tick={{ fontSize: 12, fill: '#5e6a7c' }} tickLine={false} axisLine={false} minTickGap={24} />
                 <YAxis yAxisId="g" tick={{ fontSize: 12, fill: '#5e6a7c' }} tickLine={false} axisLine={false} width={36} allowDecimals={false} />
                 <YAxis yAxisId="t" orientation="right" tick={{ fontSize: 12, fill: '#5e6a7c' }} tickLine={false} axisLine={false} width={44} domain={['dataMin - 5', 'dataMax + 5']} />
                 <Tooltip
                   labelFormatter={(d) => prettyDate(String(d), { weekday: 'long', day: 'numeric', month: 'short' })}
                   formatter={(v: number, n) => [fmt(v), n === 'total' ? 'Total followers' : 'New followers']}
-                  contentStyle={{ borderRadius: 10, border: '1px solid #dde2e8', fontSize: 13 }}
+                  contentStyle={{ borderRadius: 10, border: '1px solid #dde2e8', fontSize: 13, boxShadow: '0 8px 24px rgba(10,26,61,.12)' }}
                 />
-                <Bar yAxisId="g" dataKey="gained" fill="#7fcfb4" radius={[3, 3, 0, 0]} maxBarSize={18} />
-                <Line yAxisId="t" dataKey="total" stroke="#172133" strokeWidth={2.2} dot={false} connectNulls />
+                <Area yAxisId="t" dataKey="total" stroke="#1a5fe0" strokeWidth={2.4} fill="url(#gArea)" dot={false} activeDot={{ r: 4 }} connectNulls />
+                <Bar yAxisId="g" dataKey="gained" fill="url(#gBar)" radius={[4, 4, 0, 0]} maxBarSize={18} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -182,6 +188,32 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {byProduct.length > 0 && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>Followers by product</h2>
+              <p>Latest total followers across each product's social accounts.</p>
+            </div>
+            <Link to="/products" className="btn btn-ghost">All products <ArrowRight /></Link>
+          </div>
+          <div style={{ height: Math.max(140, byProduct.length * 38 + 30), padding: '10px 16px 10px 4px' }}>
+            <ResponsiveContainer>
+              <BarChart data={byProduct} layout="vertical" margin={{ left: 8, right: 56, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke="#e9eef5" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: '#5e6a7c' }} tickLine={false} axisLine={false} tickFormatter={(v) => compact(v)} />
+                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12.5, fill: '#1b2433' }} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{ fill: '#f1f5fb' }} formatter={(v: number) => [fmt(v), 'Followers']} contentStyle={{ borderRadius: 10, border: '1px solid #dde2e8', fontSize: 13 }} />
+                <Bar dataKey="followers" radius={[0, 5, 5, 0]} maxBarSize={22}>
+                  {byProduct.map((p, i) => <Cell key={p.id} fill={CHART[i % CHART.length]} />)}
+                  <LabelList dataKey="followers" position="right" formatter={(v: number) => fmt(v)} style={{ fontSize: 12, fill: '#1b2433', fontWeight: 600 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       {hasAccounts && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head">
@@ -190,7 +222,7 @@ export default function Dashboard() {
               <p>Each cell is one day. Darker green means more new followers; red means followers were lost.</p>
             </div>
             <div className="ribbon-legend" aria-hidden="true">
-              Lost <i style={{ background: '#e9a39c' }} /> <i style={{ background: '#dfe4ea' }} /> <i style={{ background: '#bfe6d9' }} /><i style={{ background: '#2fa585' }} /><i style={{ background: '#0b7a62' }} /> Gained
+              Lost <i style={{ background: '#e9a39c' }} /> <i style={{ background: '#dfe4ea' }} /> <i style={{ background: '#bfe6d9' }} /><i style={{ background: '#2fa585' }} /><i style={{ background: '#0b7f66' }} /> Gained
             </div>
           </div>
           <div className="table-wrap" style={{ padding: '8px 8px 4px' }}>

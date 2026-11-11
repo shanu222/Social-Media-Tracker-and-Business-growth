@@ -91,7 +91,7 @@ export function Attachment({ f }: { f: FileLite }) {
 export const PRIORITY: Record<string, { label: string; color: string; badge: string }> = {
   urgent: { label: 'Urgent', color: '#b8322a', badge: 'badge-bad' },
   high: { label: 'High', color: '#a86a12', badge: 'badge-warn' },
-  normal: { label: 'Normal', color: '#3346b0', badge: 'badge-info' },
+  normal: { label: 'Normal', color: '#1a5fe0', badge: 'badge-info' },
   low: { label: 'Low', color: '#c6ced8', badge: '' },
 };
 

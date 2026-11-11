@@ -12,7 +12,7 @@ export interface ProductRow {
 
 export function ProductCover({ p }: { p: { name: string; color: string | null; image_url: string | null } }) {
   return (
-    <div className="prod-cover" style={{ ['--pcol' as string]: p.color || '#172133', backgroundImage: p.image_url ? `url("${p.image_url}")` : undefined }}>
+    <div className="prod-cover" style={{ ['--pcol' as string]: p.color || '#0a1a3d', backgroundImage: p.image_url ? `url("${p.image_url}")` : undefined }}>
       <span className="initial">{p.name.slice(0, 1).toUpperCase()}</span>
     </div>
   );
@@ -49,7 +49,7 @@ export default function Products() {
       ) : (
         <div className="prod-grid">
           {data.map((p) => (
-            <Link key={p.id} to={`/products/${p.id}`} className="panel prod-card" style={{ ['--pcol' as string]: p.color || '#172133', opacity: p.archived ? 0.6 : 1 }}>
+            <Link key={p.id} to={`/products/${p.id}`} className="panel prod-card" style={{ ['--pcol' as string]: p.color || '#0a1a3d', opacity: p.archived ? 0.6 : 1 }}>
               <ProductCover p={p} />
               <div className="prod-body">
                 <div>
@@ -84,7 +84,7 @@ export default function Products() {
   );
 }
 
-const PRODUCT_COLORS = ['#0b7a62', '#3346b0', '#c0562a', '#7a3fb0', '#b03a6b', '#1f8bb0', '#a86a12', '#4d6b1f', '#172133'];
+const PRODUCT_COLORS = ['#0b7f66', '#1a5fe0', '#c0562a', '#7a3fb0', '#b03a6b', '#1f8bb0', '#a86a12', '#4d6b1f', '#0a1a3d'];
 /** Same name → same colour, so nobody has to pick one. */
 export const colorFor = (name: string) => PRODUCT_COLORS[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % PRODUCT_COLORS.length];
 

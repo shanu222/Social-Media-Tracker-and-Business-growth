@@ -19,7 +19,7 @@ export const PLATFORMS: { id: string; label: string; color: string }[] = [
   { id: 'threads', label: 'Threads', color: '#444444' },
   { id: 'pinterest', label: 'Pinterest', color: '#bd081c' },
   { id: 'whatsapp', label: 'WhatsApp', color: '#1f9d55' },
-  { id: 'website', label: 'Website', color: '#0b7a62' },
+  { id: 'website', label: 'Website', color: '#0b7f66' },
   { id: 'other', label: 'Other', color: '#5e6a7c' },
 ];
 export const platformOf = (id: string) => PLATFORMS.find((p) => p.id === id) || { id, label: id, color: '#5e6a7c' };
@@ -83,7 +83,7 @@ export const prettyMonth = (m: string) =>
 export const bytes = (n: number) =>
   n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
-const PALETTE = ['#0b7a62', '#3346b0', '#c0562a', '#7a3fb0', '#b0870f', '#1f8bb0', '#b03a6b', '#4d6b1f', '#5e6a7c'];
+const PALETTE = ['#1a5fe0', '#16b97a', '#12b5e8', '#7a3fb0', '#e0812a', '#0b7f66', '#b03a6b', '#4d6b1f', '#c2372f'];
 export const accountColor = (a: { id: number; color?: string | null }) => a.color || PALETTE[(a.id - 1) % PALETTE.length];
 
 /* ---------------- Auth ---------------- */

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Mail, Phone, Globe } from 'lucide-react';
+import { BRAND } from '../brand';
 import { useAuth } from '../lib';
 
 const BARS = [18, 26, 22, 34, 30, 42, 38, 52, 47, 61, 58, 74, 70, 88];
@@ -27,18 +28,29 @@ export default function Login() {
   return (
     <div className="login">
       <div className="login-art">
-        <div>
-          <h1>Every account, every number, one desk.</h1>
-          <p>Log today's followers, tick off the routine, set monthly targets and send a clean report — all in one private workspace.</p>
+        <div className="login-org">
+          <img src="/rtl-logo.png" alt="RTL" />
+          <div><b>Growth Desk for RTL</b><span>{BRAND.legal}</span></div>
         </div>
-        <div className="login-bars" aria-hidden="true">
-          {BARS.map((h, i) => <i key={i} className={i >= BARS.length - 3 ? 'hi' : ''} style={{ height: `${h}%` }} />)}
+        <div>
+          <h1>Every product, every account, one desk.</h1>
+          <p>Track daily growth across all RTL products, assign work to the team and send branded reports, from one private workspace.</p>
+          <div className="login-bars" aria-hidden="true" style={{ marginTop: 28 }}>
+            {BARS.map((h, i) => <i key={i} className={i >= BARS.length - 3 ? 'hi' : ''} style={{ height: `${h}%` }} />)}
+          </div>
+        </div>
+        <div className="login-ceo">
+          <span><b>{BRAND.ceo}</b>, {BRAND.ceoTitle}</span>
+          <a href={`mailto:${BRAND.email}`}><Mail /> {BRAND.email}</a>
+          <a href={BRAND.whatsapp} target="_blank" rel="noreferrer noopener"><Phone /> {BRAND.phone}</a>
+          <a href={BRAND.website} target="_blank" rel="noreferrer noopener"><Globe /> {BRAND.websiteLabel}</a>
         </div>
       </div>
       <div className="login-form">
         <form onSubmit={submit}>
+          <div className="login-mobile-logo"><img src="/rtl-logo-192.png" alt="RTL" /></div>
           <div>
-            <h1 style={{ fontSize: 26 }}>Sign in to Growth Desk</h1>
+            <h1 style={{ fontSize: 26 }}>Sign in to Growth Desk for RTL</h1>
             <p className="muted" style={{ marginTop: 6 }}>Sign in with your work account.</p>
           </div>
           <div className="field">
@@ -56,6 +68,7 @@ export default function Login() {
           <p className="faint" style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center' }}>
             <Lock size={13} /> Data is encrypted and only visible to signed-in team members.
           </p>
+          <p className="faint" style={{ fontSize: 12 }}>© {new Date().getFullYear()} {BRAND.legal}</p>
         </form>
       </div>
     </div>

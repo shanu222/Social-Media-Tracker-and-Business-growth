@@ -42,9 +42,9 @@ router.post('/test-email', requireRole('admin'), ah(async (req, res) => {
   const me = await one('SELECT email, notify_email FROM users WHERE id = $1', [req.user.id]);
   const target = to || me.notify_email || me.email;
   const ok = await sendEmail({
-    to: target, kind: 'test', subject: 'Growth Desk test email',
-    html: `<p>Email delivery from Growth Desk works.</p><p><a href="${appUrl()}">Open Growth Desk</a></p>`,
-    text: `Email delivery from Growth Desk works. ${appUrl()}`,
+    to: target, kind: 'test', subject: 'Growth Desk for RTL test email',
+    html: `<p>Email delivery from Growth Desk for RTL works.</p><p><a href="${appUrl()}">Open Growth Desk for RTL</a></p>`,
+    text: `Email delivery from Growth Desk for RTL works. ${appUrl()}`,
   });
   if (!ok) {
     const last = await one('SELECT error FROM email_log ORDER BY id DESC LIMIT 1');

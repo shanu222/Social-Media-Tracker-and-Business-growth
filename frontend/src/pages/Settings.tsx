@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { AlertTriangle, DatabaseBackup, KeyRound, LogOut, Mail, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, Globe, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { BRAND } from '../brand';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
@@ -33,6 +34,18 @@ export default function Settings() {
   return (
     <>
       <div className="page-head"><div><h1>Settings</h1><p>Signed in as {user?.name} ({user?.email}).</p></div></div>
+      <div className="panel org-strip" style={{ marginBottom: 16 }}>
+        <img src={BRAND.logo} alt="RTL" />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <h2>Growth Desk for RTL</h2>
+          <p className="muted" style={{ fontSize: 13.5 }}>{BRAND.legal} · {BRAND.ceo}, {BRAND.ceoTitle}</p>
+        </div>
+        <div className="org-links">
+          <a href={`mailto:${BRAND.email}`}><Mail /> {BRAND.email}</a>
+          <a href={BRAND.whatsapp} target="_blank" rel="noreferrer noopener"><Phone /> {BRAND.phone}</a>
+          <a href={BRAND.website} target="_blank" rel="noreferrer noopener"><Globe /> {BRAND.websiteLabel}</a>
+        </div>
+      </div>
       <div className="stack" style={{ marginBottom: 16 }}>
         {can('admin') && (
         <form className="panel panel-pad stack" style={{ gap: 12 }} onSubmit={changePw}>

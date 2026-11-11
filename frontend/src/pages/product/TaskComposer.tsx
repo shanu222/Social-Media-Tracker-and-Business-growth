@@ -51,7 +51,7 @@ export default function TaskComposer({ productId: fixed, people, onClose, onSave
         {!products.data ? <p className="muted">Loading…</p> : products.data.length === 0 ? <p className="muted">Create a product first.</p> : (
           <div className="stack" style={{ gap: 8 }}>
             {products.data.map((p) => (
-              <button key={p.id} className="panel panel-pad task-btn row" style={{ justifyContent: 'space-between', borderLeft: `4px solid ${p.color || '#172133'}` }} onClick={() => setProductId(p.id)}>
+              <button key={p.id} className="panel panel-pad task-btn row" style={{ justifyContent: 'space-between', borderLeft: `4px solid ${p.color || '#0a1a3d'}` }} onClick={() => setProductId(p.id)}>
                 <span style={{ textAlign: 'left' }}><b>{p.name}</b>{p.tagline && <span className="muted" style={{ display: 'block', fontSize: 13 }}>{p.tagline}</span>}</span>
                 <span className="row" style={{ gap: 6 }}>
                   {p.account_count === 0 && <span className="badge badge-warn">No accounts yet</span>}

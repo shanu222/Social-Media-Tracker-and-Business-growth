@@ -3,7 +3,9 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, PenLine, AtSign, ListChecks, Target, NotebookPen, FileBarChart, FolderLock, Settings as Cog, LogOut, Menu,
   Boxes, Inbox, ListTodo,
+  Mail, Phone, Globe,
 } from 'lucide-react';
+import { BRAND } from './brand';
 import { useAuth, Loading, ROLE_LABEL } from './lib';
 import Notifications from './Notifications';
 import Login from './pages/Login';
@@ -56,13 +58,17 @@ function navFor(isAdmin: boolean): { group: string; items: Item[] }[] {
 }
 
 function Logo() {
+  return <img src={BRAND.logo} alt="RTL" width={40} height={40} />;
+}
+
+function OrgCard() {
   return (
-    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="#24324a" />
-      <rect x="7" y="18" width="4" height="7" rx="1" fill="#5FC9A8" />
-      <rect x="14" y="13" width="4" height="12" rx="1" fill="#5FC9A8" />
-      <rect x="21" y="7" width="4" height="18" rx="1" fill="#5FC9A8" />
-    </svg>
+    <div className="org-card">
+      <b>{BRAND.ceo}, {BRAND.ceoTitle}</b>
+      <a href={`mailto:${BRAND.email}`} title={BRAND.email}><Mail /> <span>{BRAND.email}</span></a>
+      <a href={BRAND.whatsapp} target="_blank" rel="noreferrer noopener"><Phone /> <span>{BRAND.phone}</span></a>
+      <a href={BRAND.website} target="_blank" rel="noreferrer noopener"><Globe /> <span>{BRAND.websiteLabel}</span></a>
+    </div>
   );
 }
 
@@ -81,7 +87,8 @@ export default function App() {
     <div className="shell">
       <div className="mobile-bar">
         <button onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
-        <strong style={{ fontFamily: 'var(--font-display)', flex: 1 }}>Growth Desk</strong>
+        <img src={BRAND.logo} alt="" width={30} height={30} />
+        <strong style={{ fontFamily: 'var(--font-display)', flex: 1 }}>Growth Desk for RTL</strong>
         <Notifications dark />
       </div>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
@@ -91,7 +98,7 @@ export default function App() {
             <Logo />
             <div>
               <div className="brand-name">Growth Desk</div>
-              <div className="brand-sub">Products & social media</div>
+              <div className="brand-name"><span>for RTL</span></div>
             </div>
           </NavLink>
           <span className="desktop-only"><Notifications dark /></span>
@@ -110,7 +117,8 @@ export default function App() {
           <div className="nav-group">Account</div>
           <NavLink to="/settings"><Cog /> Settings</NavLink>
         </nav>
-        <div className="sidebar-foot">
+        <OrgCard />
+        <div className="sidebar-foot" style={{ marginTop: 0 }}>
           <div className="who">{user.name}</div>
           <div style={{ color: '#8e9bb0', fontSize: 12 }}>{ROLE_LABEL[user.role]}</div>
           <button onClick={logout}><LogOut size={14} /> Sign out</button>
