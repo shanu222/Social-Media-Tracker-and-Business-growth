@@ -4,7 +4,43 @@ import { api, setToken, setUnauthorizedHandler, hasToken } from './api';
 
 /* ---------------- Types ---------------- */
 export type Role = 'admin' | 'manager' | 'viewer';
-export interface User { id: number; email: string; name: string; role: Role }
+export interface User { id: number; email: string; name: string; role: Role; must_change_password?: boolean }
+export const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', manager: 'Social media manager', viewer: 'Viewer' };
+
+export const PLATFORMS: { id: string; label: string; color: string }[] = [
+  { id: 'instagram', label: 'Instagram', color: '#c13584' },
+  { id: 'facebook', label: 'Facebook', color: '#1877f2' },
+  { id: 'youtube', label: 'YouTube', color: '#e62117' },
+  { id: 'linkedin', label: 'LinkedIn', color: '#0a66c2' },
+  { id: 'discord', label: 'Discord', color: '#5865f2' },
+  { id: 'telegram', label: 'Telegram', color: '#229ed9' },
+  { id: 'tiktok', label: 'TikTok', color: '#111111' },
+  { id: 'x', label: 'X', color: '#333333' },
+  { id: 'threads', label: 'Threads', color: '#444444' },
+  { id: 'pinterest', label: 'Pinterest', color: '#bd081c' },
+  { id: 'whatsapp', label: 'WhatsApp', color: '#1f9d55' },
+  { id: 'website', label: 'Website', color: '#0b7a62' },
+  { id: 'other', label: 'Other', color: '#5e6a7c' },
+];
+export const platformOf = (id: string) => PLATFORMS.find((p) => p.id === id) || { id, label: id, color: '#5e6a7c' };
+
+export function PlatformChip({ id, small }: { id: string; small?: boolean }) {
+  const p = platformOf(id);
+  return (
+    <span className="pchip" style={{ ['--pc' as string]: p.color, fontSize: small ? 12 : undefined }}>
+      <i />{p.label}
+    </span>
+  );
+}
+
+export const timeAgo = (d: string) => {
+  const s = (Date.now() - new Date(d).getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+};
 export interface Account {
   id: number; brand: string; username: string; platform: string; profile_url: string | null;
   content_theme: string | null; youtube_status: string | null; two_factor_enabled: boolean;
@@ -13,6 +49,8 @@ export interface Account {
   color: string | null; archived: boolean;
   last_date?: string | null; last_followers?: number | null; last_following?: number | null;
   last_posts?: number | null; week_ago_followers?: number | null;
+  product_id?: number | null; product_name?: string | null; external_id?: string | null; has_api_token?: boolean;
+  sync_enabled?: boolean; can_sync?: boolean; last_synced_at?: string | null; sync_error?: string | null;
 }
 
 /* ---------------- Formatting ---------------- */
@@ -52,6 +90,7 @@ export const accountColor = (a: { id: number; color?: string | null }) => a.colo
 interface AuthState {
   user: User | null;
   ready: boolean;
+  setUser: (u: User | null) => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   can: (role: Role) => boolean;
@@ -88,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const can = useCallback((role: Role) => !!user && RANK[user.role] >= RANK[role], [user]);
 
-  return <AuthCtx.Provider value={{ user, ready, login, logout, can }}>{children}</AuthCtx.Provider>;
+  return <AuthCtx.Provider value={{ user, ready, setUser, login, logout, can }}>{children}</AuthCtx.Provider>;
 }
 
 /* ---------------- Toasts ---------------- */

@@ -20,7 +20,7 @@ router.get('/', ah(async (_req, res) => {
   res.json(await many('SELECT * FROM metrics WHERE active = TRUE ORDER BY position, id'));
 }));
 
-router.post('/', requireRole('manager'), ah(async (req, res) => {
+router.post('/', requireRole('admin'), ah(async (req, res) => {
   const b = parse(metricSchema, req.body);
   const existing = await one('SELECT * FROM metrics WHERE lower(name) = lower($1)', [b.name]);
   if (existing?.active) return res.status(409).json({ error: 'A metric with this name already exists.' });
@@ -36,7 +36,7 @@ router.post('/', requireRole('manager'), ah(async (req, res) => {
   res.status(201).json(m);
 }));
 
-router.put('/:id(\\d+)', requireRole('manager'), ah(async (req, res) => {
+router.put('/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
   const b = parse(metricSchema, req.body);
   const m = await one(
     'UPDATE metrics SET name=$2, category=$3, unit=$4, aggregation=$5, higher_is_better=$6 WHERE id=$1 RETURNING *',
@@ -46,7 +46,7 @@ router.put('/:id(\\d+)', requireRole('manager'), ah(async (req, res) => {
   res.json(m);
 }));
 
-router.delete('/:id(\\d+)', requireRole('manager'), ah(async (req, res) => {
+router.delete('/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
   await query('UPDATE metrics SET active = FALSE WHERE id = $1', [Number(req.params.id)]);
   await audit(req, 'metric.removed', 'metric', req.params.id);
   res.json({ ok: true });
@@ -100,7 +100,7 @@ router.get('/month', ah(async (req, res) => {
   res.json({ month, rows: await monthlyKpis(month) });
 }));
 
-router.put('/targets', requireRole('manager'), ah(async (req, res) => {
+router.put('/targets', requireRole('admin'), ah(async (req, res) => {
   const { month, targets } = parse(
     z.object({
       month: zMonth,

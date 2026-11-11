@@ -1,7 +1,55 @@
-# Growth Desk — Social Media Tracker & Business Growth
+# Growth Desk — Social Media Product Management & Business Growth
 
-A private web app for running all your social accounts and business numbers from one place.
-It replaces the paper/Word "Social Media Tracker" with a live, shared, secure workspace.
+A private web app where the company owner manages every product's social media, and the
+Social Media Manager sees exactly what to post, posts it, and reports back.
+
+## Product workspaces (one page per product)
+
+| Tab | What's there |
+|---|---|
+| **Overview** | Product details & image, all its social accounts with live follower counts, what's waiting, posts in 30 days, recent activity |
+| **Content to post** | Admin shares a caption, hashtags, media, instructions, target platforms, priority, deadline and assignee. Manager copies the caption in one click, starts the task and marks it posted with the link for each platform |
+| **Published** | Every post that went live (including ones the manager made independently) with date, platform, account and link |
+| **Chat** | Product-only conversation between Admin and manager; messages can reference a specific task |
+| **Files** | Brand assets and media for this product (private Cloudflare R2) |
+| **Activity** | Full history: content shared, started, posted, files, edits — who and when |
+
+**Manager dashboard ("My work")**: assigned products, unread chats, and everything to post grouped as
+Overdue / Due today / Next 3 days / Later. **Notifications** (bell) for new content, chat messages,
+posted content, new files and daily deadline reminders.
+
+### Roles
+
+| | Admin (owner) | Social media manager | Viewer |
+|---|---|---|---|
+| Products, accounts, content tasks | create / edit / delete | sees **assigned products only**; starts & completes tasks, records posts | read |
+| Chat, files, published log | full | on assigned products | read |
+| Daily numbers & checklist | ✓ | ✓ | read |
+| Targets, metric definitions, checklist tasks | ✓ | read | read |
+| Users, emails, passwords of others, roles | ✓ | ✗ | ✗ |
+| Login emails, private notes, API tokens of accounts | ✓ | ✗ (never sent to the browser) | ✗ |
+| Audit log, backups, integrations | ✓ | ✗ | ✗ |
+
+Everyone can change **their own** password; new users and admin-reset passwords must be changed at first sign-in.
+
+### Automatic follower counts (official APIs only)
+
+| Platform | How | What you set |
+|---|---|---|
+| YouTube | YouTube Data API v3 | `YOUTUBE_API_KEY` on Railway; Channel ID (`UC…`) or `@handle` on the account |
+| Telegram | Bot API `getChatMemberCount` | `TELEGRAM_BOT_TOKEN` on Railway; channel `@username` on the account (add the bot to private channels) |
+| Discord | Public invite endpoint (`with_counts`) | the invite code (after `discord.gg/`) on the account |
+| Instagram | Instagram Graph API (business/creator account) | IG user ID + long-lived access token on the account |
+| Facebook | Graph API (Page) | Page ID + Page access token on the account |
+| LinkedIn, TikTok, X… | need partner-approved apps | log numbers in **Daily update** |
+
+Synced every 6 hours (`SYNC_CRON`) and with **Sync now**. No scraping and no password logins — nothing that risks an account ban.
+Tokens are encrypted and never returned to any browser. Publishing/scheduling directly to platforms is not automated
+(it needs app review from each platform); the manager publishes and records the link.
+
+---
+
+## Tracker features (from the original sheet)
 
 | What you do | Where |
 |---|---|
@@ -70,6 +118,9 @@ backend/   Node.js + Express + PostgreSQL → deploy on Railway
    | `ADMIN_PASSWORD` | a strong first password (remove this variable after first sign-in) |
    | `ADMIN_NAME` | your name |
    | `APP_TIMEZONE` | `Asia/Karachi` |
+   | `MANAGER_EMAIL` / `MANAGER_PASSWORD` / `MANAGER_NAME` | the Social Media Manager's first login (forced to change at first sign-in) |
+   | `YOUTUBE_API_KEY` | optional — Google Cloud console → YouTube Data API v3 → API key |
+   | `TELEGRAM_BOT_TOKEN` | optional — from @BotFather |
 
 6. **Settings → Networking → Generate Domain.** Copy the URL (e.g. `https://xxx.up.railway.app`).
    Open `https://xxx.up.railway.app/health` — it should show `{"ok":true}`.
@@ -131,4 +182,10 @@ All routes are under `/api` and need `Authorization: Bearer <token>` except `POS
 | Dashboard | `GET /dashboard?days=30` |
 | Reports | `GET/POST /reports`, `GET /reports/:id`, `GET /reports/:id/pdf`, `DELETE /reports/:id` |
 | Files (R2) | `GET/POST /files`, `GET /files/:id/download`, `DELETE /files/:id` |
+| Products | `GET/POST /products`, `GET/PUT/DELETE /products/:id`, `POST /products/:id/image`, `GET /products/:id/activity` |
+| Content tasks | `GET/POST /products/:id/tasks`, `PUT/DELETE /products/:id/tasks/:taskId`, `PATCH …/status`, `GET /tasks/mine` |
+| Published posts | `GET/POST /products/:id/posts`, `DELETE /products/:id/posts/:postId` |
+| Chat | `GET /products/:id/messages?after=`, `POST /products/:id/messages` |
+| Notifications | `GET /notifications`, `POST /notifications/read` |
+| Sync | `POST /accounts/:id/sync`, `GET /accounts/sync-support` |
 | Admin | `GET/POST/PATCH /users`, `GET /users/audit`, `GET /system/status`, `GET/POST /system/backups` |

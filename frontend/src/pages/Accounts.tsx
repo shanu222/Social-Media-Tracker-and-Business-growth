@@ -4,7 +4,9 @@ import { Plus, Upload, ShieldCheck, ShieldAlert, Pencil, ExternalLink } from 'lu
 import { api } from '../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal, AccountLabel, fmt, signed, tone, todayStr, type Account } from '../lib';
 
-const PLATFORMS = ['instagram', 'facebook', 'tiktok', 'youtube', 'x', 'linkedin', 'threads', 'pinterest', 'website', 'other'];
+import { PLATFORMS as PLATFORM_LIST, PlatformChip } from '../lib';
+const PLATFORMS = PLATFORM_LIST.map((p) => p.id);
+interface SyncSupport { support: Record<string, { needs: string; token: boolean }>; youtubeKey: boolean; telegramToken: boolean }
 
 export default function Accounts() {
   const { can } = useAuth();
@@ -21,12 +23,12 @@ export default function Accounts() {
       <div className="page-head">
         <div>
           <h1>Accounts</h1>
-          <p>The register of every page you manage, with starting numbers. Login emails and private notes are encrypted before they are stored.</p>
+          <p>The register of every page you manage, with starting numbers. Login emails, notes and API tokens are encrypted and visible only to admins.</p>
         </div>
         <div className="page-actions">
           <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived</label>
-          {can('manager') && <button className="btn" onClick={() => setImporting(true)}><Upload /> Import CSV</button>}
-          {can('manager') && <button className="btn btn-primary" onClick={() => setEditing('new')}><Plus /> Add account</button>}
+          {can('admin') && <button className="btn" onClick={() => setImporting(true)}><Upload /> Import CSV</button>}
+          {can('admin') && <button className="btn btn-primary" onClick={() => setEditing('new')}><Plus /> Add account</button>}
         </div>
       </div>
 
@@ -34,7 +36,7 @@ export default function Accounts() {
         <div className="panel empty">
           <h3>No accounts registered</h3>
           <p>Add each Instagram, YouTube or other page with today's posts, followers and following as the baseline.</p>
-          {can('manager') && <button className="btn btn-primary" onClick={() => setEditing('new')}><Plus /> Add account</button>}
+          {can('admin') && <button className="btn btn-primary" onClick={() => setEditing('new')}><Plus /> Add account</button>}
         </div>
       ) : (
         <div className="panel">
@@ -42,7 +44,7 @@ export default function Accounts() {
             <table className="t">
               <thead>
                 <tr>
-                  <th>Account</th><th>Platform</th>
+                  <th>Account</th><th>Platform</th><th>Product</th>
                   <th className="r">Followers</th><th className="r">7-day change</th><th className="r">Posts</th><th className="r">Following</th>
                   <th>Security</th><th>YouTube</th><th />
                 </tr>
@@ -54,7 +56,8 @@ export default function Accounts() {
                   return (
                     <tr key={a.id} style={a.archived ? { opacity: 0.55 } : undefined}>
                       <td><Link to={`/accounts/${a.id}`} style={{ textDecoration: 'none' }}><AccountLabel a={a} /></Link></td>
-                      <td style={{ textTransform: 'capitalize' }}>{a.platform}</td>
+                      <td><PlatformChip id={a.platform} small /></td>
+                      <td>{a.product_id ? <Link to={`/products/${a.product_id}`}>{a.product_name}</Link> : <span className="faint">—</span>}</td>
                       <td className="r num">{fmt(f)}</td>
                       <td className={`r num ${tone(wk)}`}>{signed(wk)}</td>
                       <td className="r num">{fmt(a.last_posts ?? a.baseline_posts)}</td>
@@ -63,7 +66,7 @@ export default function Accounts() {
                       <td className="muted">{a.youtube_status || '—'}</td>
                       <td className="r" style={{ whiteSpace: 'nowrap' }}>
                         {a.profile_url && <a className="btn btn-ghost btn-icon" href={a.profile_url} target="_blank" rel="noreferrer noopener" aria-label={`Open ${a.brand}`}><ExternalLink size={16} /></a>}
-                        {can('manager') && <button className="btn btn-ghost btn-icon" onClick={() => setEditing(a)} aria-label={`Edit ${a.brand}`}><Pencil size={16} /></button>}
+                        {can('admin') && <button className="btn btn-ghost btn-icon" onClick={() => setEditing(a)} aria-label={`Edit ${a.brand}`}><Pencil size={16} /></button>}
                       </td>
                     </tr>
                   );
@@ -79,7 +82,7 @@ export default function Accounts() {
   );
 }
 
-export function AccountForm({ account, onClose, onSaved, onDeleted }: { account: Account | null; onClose: () => void; onSaved: () => void; onDeleted?: () => void }) {
+export function AccountForm({ account, onClose, onSaved, onDeleted, defaultProductId }: { account: Account | null; onClose: () => void; onSaved: () => void; onDeleted?: () => void; defaultProductId?: number }) {
   const toast = useToast();
   const { can } = useAuth();
   const [f, setF] = useState({
@@ -98,7 +101,14 @@ export function AccountForm({ account, onClose, onSaved, onDeleted }: { account:
     baseline_following: String(account?.baseline_following ?? 0),
     color: account?.color || '',
     archived: account?.archived || false,
+    product_id: account?.product_id ? String(account.product_id) : defaultProductId ? String(defaultProductId) : '',
+    external_id: account?.external_id || '',
+    api_token: '',
+    sync_enabled: account?.sync_enabled || false,
   });
+  const products = useData<{ id: number; name: string }[]>('/products');
+  const sync = useData<SyncSupport>('/accounts/sync-support');
+  const support = sync.data?.support[f.platform];
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
 
@@ -111,6 +121,8 @@ export function AccountForm({ account, onClose, onSaved, onDeleted }: { account:
       baseline_followers: Number(f.baseline_followers) || 0,
       baseline_following: Number(f.baseline_following) || 0,
       color: f.color || null,
+      product_id: f.product_id ? Number(f.product_id) : null,
+      api_token: f.api_token || undefined,
     };
     try {
       if (account) await api.put(`/accounts/${account.id}`, body);
@@ -160,7 +172,13 @@ export function AccountForm({ account, onClose, onSaved, onDeleted }: { account:
         <div className="field">
           <label htmlFor="platform">Platform</label>
           <select id="platform" className="input" value={f.platform} onChange={(e) => set('platform', e.target.value)}>
-            {PLATFORMS.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+            {PLATFORM_LIST.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="prod">Product</label>
+          <select id="prod" className="input" value={f.product_id} onChange={(e) => set('product_id', e.target.value)}>
+            <option value="">Not linked</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div className="field"><label htmlFor="url">Profile link</label><input id="url" className="input" type="url" value={f.profile_url} onChange={(e) => set('profile_url', e.target.value)} placeholder="https://instagram.com/…" /></div>
@@ -173,6 +191,27 @@ export function AccountForm({ account, onClose, onSaved, onDeleted }: { account:
         <div className="field"><label htmlFor="lemail">Login email</label><input id="lemail" className="input" value={f.login_email} onChange={(e) => set('login_email', e.target.value)} autoComplete="off" /><span className="hint">Encrypted. Never store passwords here — use a password manager.</span></div>
         <div className="field"><label htmlFor="color">Chart colour</label><input id="color" type="color" className="input" style={{ padding: 3 }} value={f.color || '#0b7a62'} onChange={(e) => set('color', e.target.value)} /></div>
         <div className="field full"><label htmlFor="notes">Private notes</label><textarea id="notes" className="input" value={f.private_notes} onChange={(e) => set('private_notes', e.target.value)} /><span className="hint">Encrypted. Hidden from viewer-role users.</span></div>
+        <div className="full" style={{ borderTop: '1px solid var(--line-2)', paddingTop: 14 }}>
+          <h3 style={{ marginBottom: 4 }}>Automatic numbers</h3>
+          {support ? (
+            <>
+              <p className="muted" style={{ fontSize: 13.5, marginBottom: 10 }}>Uses the platform's official API only. Needs: {support.needs}.
+                {f.platform === 'youtube' && !sync.data?.youtubeKey && <b className="down"> YOUTUBE_API_KEY is not set on Railway yet.</b>}
+                {f.platform === 'telegram' && !sync.data?.telegramToken && <b className="down"> TELEGRAM_BOT_TOKEN is not set on Railway yet.</b>}
+              </p>
+              <div className="form-grid">
+                <div className="field"><label htmlFor="ext">{f.platform === 'discord' ? 'Invite code' : f.platform === 'youtube' ? 'Channel ID or @handle' : f.platform === 'telegram' ? 'Channel @username' : f.platform === 'facebook' ? 'Page ID' : 'Instagram user ID'}</label>
+                  <input id="ext" className="input" value={f.external_id} onChange={(e) => set('external_id', e.target.value)} autoComplete="off" /></div>
+                {support.token && (
+                  <div className="field"><label htmlFor="tok">Access token</label>
+                    <input id="tok" className="input" type="password" autoComplete="new-password" value={f.api_token} onChange={(e) => set('api_token', e.target.value)} placeholder={account?.has_api_token ? 'Saved — leave empty to keep' : 'Paste the long-lived token'} />
+                    <span className="hint">Encrypted. Never shown again, not even to admins.</span></div>
+                )}
+                <label className="check full"><input type="checkbox" checked={f.sync_enabled} onChange={(e) => set('sync_enabled', e.target.checked)} /> Update this account's numbers automatically every 6 hours</label>
+              </div>
+            </>
+          ) : <p className="muted" style={{ fontSize: 13.5 }}>{f.platform[0].toUpperCase() + f.platform.slice(1)} doesn't offer an open API for these numbers, so they're logged in Daily update.</p>}
+        </div>
         <label className="check full"><input type="checkbox" checked={f.two_factor_enabled} onChange={(e) => set('two_factor_enabled', e.target.checked)} /> Two-factor authentication is turned on</label>
         {account && <label className="check full"><input type="checkbox" checked={f.archived} onChange={(e) => set('archived', e.target.checked)} /> Archive this account (hide it but keep history)</label>}
       </form>

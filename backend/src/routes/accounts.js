@@ -5,10 +5,12 @@ import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { encrypt, decrypt } from '../crypto.js';
 import { ah, parse, zDate, zInt, today } from '../util.js';
+import { syncAccount, canSync, SYNC_SUPPORT } from '../services/sync.js';
+import { productIdsFor } from '../access.js';
 
 const router = Router();
 
-const PLATFORMS = ['instagram', 'facebook', 'tiktok', 'youtube', 'x', 'linkedin', 'threads', 'pinterest', 'website', 'other'];
+export const PLATFORMS = ['instagram', 'facebook', 'youtube', 'linkedin', 'discord', 'telegram', 'tiktok', 'x', 'threads', 'pinterest', 'whatsapp', 'website', 'other'];
 
 const accountSchema = z.object({
   brand: z.string().trim().min(1).max(120),
@@ -25,15 +27,23 @@ const accountSchema = z.object({
   baseline_followers: zInt.default(0),
   baseline_following: zInt.default(0),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullish(),
+  product_id: z.number().int().positive().nullish(),
+  external_id: z.string().trim().max(200).nullish(),
+  // write-only: never returned by the API
+  api_token: z.string().max(2000).nullish(),
+  sync_enabled: z.boolean().default(false),
 });
 
+/** Login email, private notes and API tokens are company-level secrets: admin only. */
 function present(row, role) {
-  const canSeePrivate = role !== 'viewer';
-  const { login_email_enc, private_notes_enc, ...rest } = row;
+  const isAdmin = role === 'admin';
+  const { login_email_enc, private_notes_enc, api_token_enc, ...rest } = row;
   return {
     ...rest,
-    login_email: canSeePrivate ? decrypt(login_email_enc) : null,
-    private_notes: canSeePrivate ? decrypt(private_notes_enc) : null,
+    login_email: isAdmin ? decrypt(login_email_enc) : null,
+    private_notes: isAdmin ? decrypt(private_notes_enc) : null,
+    has_api_token: Boolean(api_token_enc),
+    can_sync: canSync(row.platform),
   };
 }
 
@@ -56,16 +66,27 @@ router.get(
   '/',
   ah(async (req, res) => {
     const includeArchived = req.query.archived === 'true';
+    const productId = req.query.product_id ? Number(req.query.product_id) : null;
+    const where = [];
+    if (!includeArchived) where.push('a.archived = FALSE');
+    if (productId) where.push(`a.product_id = ${Number.isInteger(productId) ? productId : 0}`);
     const rows = await many(
-      `${LIST_SQL} ${includeArchived ? '' : 'WHERE a.archived = FALSE'} ORDER BY a.archived, a.id`,
+      `${LIST_SQL.replace('FROM accounts a', 'FROM accounts a LEFT JOIN products pr ON pr.id = a.product_id').replace('SELECT a.*,', 'SELECT a.*, pr.name AS product_name,')}
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY a.archived, a.id`,
       [today()]
     );
     res.json(rows.map((r) => present(r, req.user.role)));
   })
 );
 
+router.get('/sync-support', (_req, res) => res.json({
+  support: SYNC_SUPPORT,
+  youtubeKey: Boolean(process.env.YOUTUBE_API_KEY),
+  telegramToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+}));
+
 router.get(
-  '/:id',
+  '/:id(\\d+)',
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const row = await one(`${LIST_SQL} WHERE a.id = $2`, [today(), id]);
@@ -95,13 +116,18 @@ function values(b) {
     b.baseline_followers,
     b.baseline_following,
     b.color || null,
+    b.product_id ?? null,
+    b.external_id || null,
+    encrypt(b.api_token),
+    b.sync_enabled,
   ];
 }
 
 const INSERT_SQL = `INSERT INTO accounts
   (brand, username, platform, profile_url, content_theme, youtube_status, two_factor_enabled,
-   login_email_enc, private_notes_enc, baseline_date, baseline_posts, baseline_followers, baseline_following, color)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`;
+   login_email_enc, private_notes_enc, baseline_date, baseline_posts, baseline_followers, baseline_following, color,
+   product_id, external_id, api_token_enc, sync_enabled)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`;
 
 async function insertAccount(client, b, userId) {
   const { rows } = await client.query(INSERT_SQL, values(b));
@@ -117,7 +143,7 @@ async function insertAccount(client, b, userId) {
 
 router.post(
   '/',
-  requireRole('manager'),
+  requireRole('admin'),
   ah(async (req, res) => {
     const body = parse(accountSchema, req.body);
     const dup = await one('SELECT 1 FROM accounts WHERE platform = $1 AND lower(username) = lower($2)', [body.platform, body.username]);
@@ -131,7 +157,7 @@ router.post(
 /** Bulk import (rows parsed from CSV in the browser). Skips duplicates. */
 router.post(
   '/import',
-  requireRole('manager'),
+  requireRole('admin'),
   ah(async (req, res) => {
     const { rows } = parse(z.object({ rows: z.array(z.any()).min(1).max(500) }), req.body);
     let created = 0;
@@ -161,8 +187,8 @@ router.post(
 );
 
 router.put(
-  '/:id',
-  requireRole('manager'),
+  '/:id(\\d+)',
+  requireRole('admin'),
   ah(async (req, res) => {
     const id = Number(req.params.id);
     const body = parse(accountSchema.extend({ archived: z.boolean().optional() }), req.body);
@@ -171,10 +197,13 @@ router.put(
     // Keep encrypted values when the client didn't send them (e.g. viewer-masked forms)
     const loginEnc = body.login_email === undefined ? current.login_email_enc : encrypt(body.login_email);
     const notesEnc = body.private_notes === undefined ? current.private_notes_enc : encrypt(body.private_notes);
+    // Empty/omitted token keeps the stored one; send clear_api_token to remove it
+    const tokenEnc = req.body.clear_api_token ? null : body.api_token ? encrypt(body.api_token) : current.api_token_enc;
     const acc = await one(
       `UPDATE accounts SET brand=$2, username=$3, platform=$4, profile_url=$5, content_theme=$6, youtube_status=$7,
         two_factor_enabled=$8, login_email_enc=$9, private_notes_enc=$10, baseline_date=$11, baseline_posts=$12,
-        baseline_followers=$13, baseline_following=$14, color=$15, archived=$16
+        baseline_followers=$13, baseline_following=$14, color=$15, archived=$16,
+        product_id=$17, external_id=$18, api_token_enc=$19, sync_enabled=$20
        WHERE id=$1 RETURNING *`,
       [
         id,
@@ -193,6 +222,10 @@ router.put(
         body.baseline_following,
         body.color || null,
         body.archived ?? current.archived,
+        body.product_id === undefined ? current.product_id : body.product_id,
+        body.external_id === undefined ? current.external_id : body.external_id || null,
+        tokenEnc,
+        body.sync_enabled,
       ]
     );
     await audit(req, 'account.updated', 'account', id, { brand: acc.brand });
@@ -200,8 +233,19 @@ router.put(
   })
 );
 
+router.post(
+  '/:id(\\d+)/sync',
+  requireRole('manager'),
+  ah(async (req, res) => {
+    const id = Number(req.params.id);
+    const r = await syncAccount(id);
+    await audit(req, 'account.synced', 'account', id);
+    res.json(r);
+  })
+);
+
 router.delete(
-  '/:id',
+  '/:id(\\d+)',
   requireRole('admin'),
   ah(async (req, res) => {
     const id = Number(req.params.id);

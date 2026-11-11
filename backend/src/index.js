@@ -22,6 +22,12 @@ import dashboardRoutes from './routes/dashboard.js';
 import reportRoutes from './routes/reports.js';
 import fileRoutes from './routes/files.js';
 import systemRoutes from './routes/system.js';
+import productRoutes from './routes/products.js';
+import { productTasks, myTasks, sendDueReminders } from './routes/tasks.js';
+import postRoutes from './routes/posts.js';
+import messageRoutes from './routes/messages.js';
+import notificationRoutes from './routes/notifications.js';
+import { syncAll } from './services/sync.js';
 
 const app = express();
 app.set('trust proxy', 1); // Railway sits behind a proxy
@@ -72,16 +78,31 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/users', requireAuth, userRoutes);
-app.use('/api/accounts', requireAuth, accountRoutes);
-app.use('/api/snapshots', requireAuth, snapshotRoutes);
-app.use('/api/checklist', requireAuth, checklistRoutes);
-app.use('/api/metrics', requireAuth, metricRoutes);
-app.use('/api/reviews', requireAuth, reviewRoutes);
-app.use('/api/dashboard', requireAuth, dashboardRoutes);
-app.use('/api/reports', requireAuth, reportRoutes);
-app.use('/api/files', requireAuth, fileRoutes);
-app.use('/api/system', requireAuth, systemRoutes);
+
+// Everything below needs a signed-in user who has replaced their first password.
+function requireFreshPassword(req, res, next) {
+  if (req.user?.must_change_password) {
+    return res.status(403).json({ error: 'Change your password to continue.', code: 'PASSWORD_CHANGE_REQUIRED' });
+  }
+  next();
+}
+const auth = [requireAuth, requireFreshPassword];
+app.use('/api/products/:productId(\\d+)/tasks', auth, productTasks);
+app.use('/api/products/:productId(\\d+)/posts', auth, postRoutes);
+app.use('/api/products/:productId(\\d+)/messages', auth, messageRoutes);
+app.use('/api/products', auth, productRoutes);
+app.use('/api/tasks/mine', auth, myTasks);
+app.use('/api/notifications', auth, notificationRoutes);
+app.use('/api/users', auth, userRoutes);
+app.use('/api/accounts', auth, accountRoutes);
+app.use('/api/snapshots', auth, snapshotRoutes);
+app.use('/api/checklist', auth, checklistRoutes);
+app.use('/api/metrics', auth, metricRoutes);
+app.use('/api/reviews', auth, reviewRoutes);
+app.use('/api/dashboard', auth, dashboardRoutes);
+app.use('/api/reports', auth, reportRoutes);
+app.use('/api/files', auth, fileRoutes);
+app.use('/api/system', auth, systemRoutes);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
@@ -98,6 +119,20 @@ app.use((err, _req, res, _next) => {
         : err.message,
   });
 });
+
+/** Creates the Social Media Manager login from MANAGER_* variables (once). Forced password change on first sign-in. */
+async function bootstrapManager() {
+  const email = process.env.MANAGER_EMAIL?.trim().toLowerCase();
+  const password = process.env.MANAGER_PASSWORD;
+  if (!email || !password) return;
+  const exists = await one('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
+  if (exists) return;
+  await one(
+    'INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,TRUE) RETURNING id',
+    [email, process.env.MANAGER_NAME || 'Social Media Manager', 'manager', await bcrypt.hash(password, 12)]
+  );
+  console.log(`[setup] Created Social Media Manager login ${email} (must change password on first sign-in).`);
+}
 
 async function bootstrapAdmin() {
   const { n } = await one('SELECT count(*)::int AS n FROM users');
@@ -118,6 +153,14 @@ async function bootstrapAdmin() {
 async function start() {
   await migrate();
   await bootstrapAdmin();
+  await bootstrapManager();
+  const tz = { timezone: config.timezone };
+  // Pull follower counts from official APIs every 6 hours
+  cron.schedule(process.env.SYNC_CRON || '15 */6 * * *', () =>
+    syncAll().then((r) => console.log('[sync]', r)).catch((e) => console.error('[sync] failed', e.message)), tz);
+  // Deadline reminders every morning
+  cron.schedule(process.env.REMINDER_CRON || '0 9 * * *', () =>
+    sendDueReminders().then((n) => console.log('[reminders]', n)).catch((e) => console.error('[reminders] failed', e.message)), tz);
   if (cron.validate(config.backupCron)) {
     cron.schedule(
       config.backupCron,

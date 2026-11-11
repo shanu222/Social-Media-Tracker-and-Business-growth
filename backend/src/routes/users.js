@@ -17,7 +17,7 @@ router.get(
   ah(async (_req, res) => {
     res.json(
       await many(
-        'SELECT id, email, name, role, active, last_login_at, created_at FROM users ORDER BY created_at'
+        'SELECT id, email, name, role, active, last_login_at, created_at, must_change_password FROM users ORDER BY created_at'
       )
     );
   })
@@ -33,7 +33,7 @@ router.post(
     const exists = await one('SELECT 1 FROM users WHERE lower(email) = lower($1)', [body.email]);
     if (exists) return res.status(409).json({ error: 'A user with this email already exists.' });
     const user = await one(
-      'INSERT INTO users (email, name, role, password_hash) VALUES ($1,$2,$3,$4) RETURNING id, email, name, role, active, created_at',
+      'INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,TRUE) RETURNING id, email, name, role, active, created_at',
       [body.email.toLowerCase(), body.name, body.role, await bcrypt.hash(body.password, 12)]
     );
     await audit(req, 'user.created', 'user', user.id, { email: user.email, role: user.role });
@@ -48,6 +48,7 @@ router.patch(
     const body = parse(
       z.object({
         name: z.string().min(1).max(100).optional(),
+        email: z.string().email().max(200).optional(),
         role: role.optional(),
         active: z.boolean().optional(),
         password: passwordSchema.optional(),
@@ -59,13 +60,19 @@ router.patch(
     }
     const current = await one('SELECT * FROM users WHERE id = $1', [id]);
     if (!current) return res.status(404).json({ error: 'User not found.' });
+    if (body.email && body.email.toLowerCase() !== current.email) {
+      const taken = await one('SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2', [body.email, id]);
+      if (taken) return res.status(409).json({ error: 'Another user already has this email.' });
+    }
     const hash = body.password ? await bcrypt.hash(body.password, 12) : current.password_hash;
-    const bump = body.password || body.active === false || (body.role && body.role !== current.role) ? 1 : 0;
+    const bump = body.password || body.email || body.active === false || (body.role && body.role !== current.role) ? 1 : 0;
     const user = await one(
       `UPDATE users SET name = $2, role = $3, active = $4, password_hash = $5,
-         token_version = token_version + $6, failed_logins = 0, locked_until = NULL
-       WHERE id = $1 RETURNING id, email, name, role, active, last_login_at, created_at`,
-      [id, body.name ?? current.name, body.role ?? current.role, body.active ?? current.active, hash, bump]
+         token_version = token_version + $6, failed_logins = 0, locked_until = NULL, email = $7,
+         must_change_password = CASE WHEN $8 THEN TRUE ELSE must_change_password END
+       WHERE id = $1 RETURNING id, email, name, role, active, last_login_at, created_at, must_change_password`,
+      [id, body.name ?? current.name, body.role ?? current.role, body.active ?? current.active, hash, bump,
+        (body.email ?? current.email).toLowerCase(), Boolean(body.password) && id !== req.user.id]
     );
     await audit(req, 'user.updated', 'user', id, { ...body, password: body.password ? '(reset)' : undefined });
     res.json(user);

@@ -184,6 +184,108 @@ CREATE TABLE IF NOT EXISTS backups (
 );
 `;
 
+// v2 — product workspaces, content tasks, posts, chat, notifications, API sync
+const SCHEMA_V2 = `
+CREATE TABLE IF NOT EXISTS products (
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  tagline      TEXT,
+  description  TEXT,
+  website_url  TEXT,
+  image_key    TEXT,
+  color        TEXT,
+  archived     BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS product_members (
+  product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (product_id, user_id)
+);
+
+ALTER TABLE users     ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE SET NULL;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS external_id TEXT;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS api_token_enc TEXT;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS sync_error TEXT;
+ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS extra JSONB;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS product_id INTEGER;
+CREATE INDEX IF NOT EXISTS audit_product_idx ON audit_log(product_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id            SERIAL PRIMARY KEY,
+  product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  title         TEXT NOT NULL,
+  caption       TEXT,
+  hashtags      TEXT,
+  instructions  TEXT,
+  platforms     TEXT[] NOT NULL DEFAULT '{}',
+  priority      TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','high','urgent')),
+  due_date      DATE,
+  status        TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo','in_progress','done','cancelled')),
+  assigned_to   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  completed_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  completed_at  TIMESTAMPTZ,
+  completion_note TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS tasks_product_idx ON tasks(product_id, status);
+CREATE INDEX IF NOT EXISTS tasks_assignee_idx ON tasks(assigned_to, status);
+
+ALTER TABLE files ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE SET NULL;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS posts (
+  id          SERIAL PRIMARY KEY,
+  product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  account_id  INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  platform    TEXT NOT NULL,
+  url         TEXT,
+  note        TEXT,
+  posted_on   DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS posts_product_idx ON posts(product_id, posted_on DESC);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id          BIGSERIAL PRIMARY KEY,
+  product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  body        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS messages_product_idx ON messages(product_id, id);
+
+CREATE TABLE IF NOT EXISTS chat_reads (
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  product_id   INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  last_read_id BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  body        TEXT,
+  link        TEXT,
+  product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
+  read_at     TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, read_at, created_at DESC);
+`;
+
 // Default checklist (from the original Social Media Tracker sheet). No account
 // data, credentials or personal info is seeded — that lives only in the database.
 const DEFAULT_TASKS = [
@@ -234,6 +336,7 @@ export async function migrate() {
   try {
     await client.query('BEGIN');
     await client.query(SCHEMA);
+    await client.query(SCHEMA_V2);
     const { rows: t } = await client.query('SELECT count(*)::int AS n FROM checklist_tasks');
     if (t[0].n === 0) {
       for (const [i, [title, scope, frequency]] of DEFAULT_TASKS.entries()) {

@@ -58,7 +58,7 @@ router.post(
     await audit({ user, ip: req.ip }, 'login.success', 'user', user.id);
     res.json({
       token: signToken(user),
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, must_change_password: user.must_change_password },
     });
   })
 );
@@ -67,8 +67,8 @@ router.get(
   '/me',
   requireAuth,
   ah(async (req, res) => {
-    const { id, email, name, role } = req.user;
-    res.json({ user: { id, email, name, role } });
+    const u = await one('SELECT id, email, name, role, must_change_password FROM users WHERE id = $1', [req.user.id]);
+    res.json({ user: u });
   })
 );
 
@@ -84,9 +84,12 @@ router.post(
     if (!(await bcrypt.compare(currentPassword, user.password_hash))) {
       return res.status(400).json({ error: 'Current password is incorrect.' });
     }
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      return res.status(400).json({ error: 'Choose a password different from the current one.' });
+    }
     const hash = await bcrypt.hash(newPassword, 12);
     const updated = await one(
-      'UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1 RETURNING *',
+      'UPDATE users SET password_hash = $2, token_version = token_version + 1, must_change_password = FALSE WHERE id = $1 RETURNING *',
       [user.id, hash]
     );
     await audit(req, 'user.password_changed', 'user', user.id);

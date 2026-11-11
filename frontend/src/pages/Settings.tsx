@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import { DatabaseBackup, KeyRound, LogOut, Plus, ShieldCheck } from 'lucide-react';
 import { api, setToken } from '../api';
-import { useAuth, useData, useToast, Modal, bytes, type Role } from '../lib';
+import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
-interface U { id: number; email: string; name: string; role: Role; active: boolean; last_login_at: string | null }
+interface U { id: number; email: string; name: string; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
 interface Audit { id: number; action: string; entity: string | null; entity_id: string | null; ip: string | null; created_at: string; user_name: string | null }
 interface Status { storageEnabled: boolean; timezone: string; backupSchedule: string; lastBackup: { created_at: string; size: number } | null }
 
@@ -46,11 +46,31 @@ export default function Settings() {
           <p className="muted">All data lives in your private database and storage, never in the code repository. Login emails, private notes and backups are encrypted with AES-256. Accounts lock for 15 minutes after 5 wrong passwords.</p>
           <div><button className="btn" onClick={logoutAll}><LogOut /> Sign out on all devices</button></div>
           {can('admin') && <BackupBox />}
+          {can('admin') && <Integrations />}
         </div>
       </div>
       {can('admin') && <UsersPanel />}
       {can('admin') && <AuditPanel />}
     </>
+  );
+}
+
+function Integrations() {
+  const { data } = useData<{ youtubeKey: boolean; telegramToken: boolean }>('/accounts/sync-support');
+  if (!data) return null;
+  const row = (ok: boolean, label: string, how: string) => (
+    <li style={{ marginBottom: 4 }}>{ok ? <span className="badge badge-good">Connected</span> : <span className="badge">Not set</span>} {label}{!ok && <span className="faint"> — {how}</span>}</li>
+  );
+  return (
+    <div style={{ borderTop: '1px solid var(--line-2)', paddingTop: 12 }}>
+      <h3 style={{ marginBottom: 6 }}>Automatic numbers (official APIs)</h3>
+      <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', fontSize: 13.5 }}>
+        {row(data.youtubeKey, 'YouTube', 'add YOUTUBE_API_KEY on Railway')}
+        {row(data.telegramToken, 'Telegram', 'add TELEGRAM_BOT_TOKEN on Railway')}
+        <li style={{ marginBottom: 4 }}><span className="badge badge-good">Ready</span> Discord — add the invite code on the account</li>
+        <li><span className="badge badge-info">Per account</span> Instagram & Facebook — add the Meta access token on the account</li>
+      </ul>
+    </div>
   );
 }
 
@@ -90,6 +110,10 @@ function UsersPanel() {
   async function patch(u: U, body: Partial<U> & { password?: string }) {
     try { await api.patch(`/users/${u.id}`, body); toast('User updated'); reload(); } catch (err) { toast((err as Error).message, true); }
   }
+  function changeEmail(u: U) {
+    const e = window.prompt(`New sign-in email for ${u.name}:`, u.email);
+    if (e && e !== u.email) patch(u, { email: e });
+  }
   function resetPw(u: U) {
     const p = window.prompt(`New password for ${u.name} (10+ characters, letters and numbers):`);
     if (p) patch(u, { password: p });
@@ -98,7 +122,7 @@ function UsersPanel() {
   return (
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head">
-        <div><h2>Team</h2><p>Admins manage everything. Managers log data and write reports. Viewers can only look.</p></div>
+        <div><h2>Team</h2><p>Admins control everything. Social media managers see only their assigned products and can't change security settings. Viewers can only look.</p></div>
         <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus /> Add person</button>
       </div>
       <div className="table-wrap" style={{ padding: 8 }}>
@@ -109,12 +133,13 @@ function UsersPanel() {
               <td>{u.name}<div className="acct-user">{u.email}</div></td>
               <td>
                 <select className="input" style={{ width: 130, height: 32 }} value={u.role} disabled={u.id === user?.id} onChange={(e) => patch(u, { role: e.target.value as Role })} aria-label={`Role for ${u.name}`}>
-                  <option value="admin">Admin</option><option value="manager">Manager</option><option value="viewer">Viewer</option>
+                  <option value="admin">{ROLE_LABEL.admin}</option><option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option>
                 </select>
               </td>
               <td className="muted">{when(u.last_login_at)}</td>
-              <td>{u.active ? <span className="badge badge-good">Active</span> : <span className="badge">Disabled</span>}</td>
+              <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => changeEmail(u)}>Change email</button>
                 <button className="btn btn-sm btn-ghost" onClick={() => resetPw(u)}>Reset password</button>
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => patch(u, { active: !u.active })}>{u.active ? 'Disable' : 'Enable'}</button>}
               </td>
@@ -127,8 +152,8 @@ function UsersPanel() {
           <form id="user-form" className="form-grid" onSubmit={add}>
             <div className="field"><label htmlFor="un">Name</label><input id="un" className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
             <div className="field"><label htmlFor="ue">Email</label><input id="ue" type="email" className="input" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-            <div className="field"><label htmlFor="ur">Role</label><select id="ur" className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="manager">Manager</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div>
-            <div className="field"><label htmlFor="up">Temporary password</label><input id="up" className="input" required minLength={10} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /><span className="hint">Share it privately; ask them to change it after signing in.</span></div>
+            <div className="field"><label htmlFor="ur">Role</label><select id="ur" className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option><option value="admin">{ROLE_LABEL.admin}</option></select></div>
+            <div className="field"><label htmlFor="up">Temporary password</label><input id="up" className="input" required minLength={10} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /><span className="hint">Share it privately. They must choose their own password at first sign-in.</span></div>
           </form>
         </Modal>
       )}

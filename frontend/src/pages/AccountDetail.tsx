@@ -46,7 +46,7 @@ export default function AccountDetail() {
         </div>
         <div className="page-actions">
           {a.two_factor_enabled ? <span className="badge badge-good"><ShieldCheck size={13} /> 2FA on</span> : <span className="badge badge-bad"><ShieldAlert size={13} /> 2FA off</span>}
-          {can('manager') && <button className="btn" onClick={() => setEditing(true)}><Pencil /> Edit</button>}
+          {can('admin') && <button className="btn" onClick={() => setEditing(true)}><Pencil /> Edit</button>}
         </div>
       </div>
 

@@ -70,7 +70,7 @@ export default function Checklist() {
           <button className="btn btn-icon" onClick={() => setDate(shiftDate(date, -7))} aria-label="Previous week"><ChevronLeft size={18} /></button>
           <span className="num" style={{ minWidth: 170, textAlign: 'center', fontWeight: 500 }}>Week of {prettyDate(data.days[0], { day: 'numeric', month: 'short' })}</span>
           <button className="btn btn-icon" onClick={() => setDate(shiftDate(date, 7))} disabled={data.days[6] >= today} aria-label="Next week"><ChevronRight size={18} /></button>
-          {editable && <button className="btn" onClick={() => setManaging(true)}>Edit tasks</button>}
+          {can('admin') && <button className="btn" onClick={() => setManaging(true)}>Edit tasks</button>}
         </div>
       </div>
 

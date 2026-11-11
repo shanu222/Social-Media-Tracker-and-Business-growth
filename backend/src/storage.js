@@ -39,6 +39,12 @@ export async function deleteObject(key) {
   await client.send(new DeleteObjectCommand({ Bucket: config.r2.bucket, Key: key }));
 }
 
+/** Short-lived link for showing an image/video inline (product images, previews). */
+export async function signedViewUrl(key, seconds = 3600) {
+  if (!client || !key) return null;
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: config.r2.bucket, Key: key }), { expiresIn: seconds });
+}
+
 export async function signedDownloadUrl(key, filename, seconds = 300) {
   ensure();
   return getSignedUrl(

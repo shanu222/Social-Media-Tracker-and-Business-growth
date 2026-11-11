@@ -79,7 +79,7 @@ const taskSchema = z.object({
 
 router.post(
   '/tasks',
-  requireRole('manager'),
+  requireRole('admin'),
   ah(async (req, res) => {
     const b = parse(taskSchema, req.body);
     const t = await one(
@@ -94,7 +94,7 @@ router.post(
 
 router.put(
   '/tasks/:id',
-  requireRole('manager'),
+  requireRole('admin'),
   ah(async (req, res) => {
     const b = parse(taskSchema, req.body);
     const t = await one('UPDATE checklist_tasks SET title=$2, scope=$3, frequency=$4 WHERE id=$1 RETURNING *', [
@@ -107,7 +107,7 @@ router.put(
 
 router.delete(
   '/tasks/:id',
-  requireRole('manager'),
+  requireRole('admin'),
   ah(async (req, res) => {
     // Soft-delete keeps historical completion data intact
     await query('UPDATE checklist_tasks SET active = FALSE WHERE id = $1', [Number(req.params.id)]);

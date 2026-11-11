@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, PenLine, AtSign, ListChecks, Target, NotebookPen, FileBarChart, FolderLock, Settings as Cog, LogOut, Menu,
+  Boxes, Inbox,
 } from 'lucide-react';
-import { useAuth, Loading } from './lib';
+import { useAuth, Loading, ROLE_LABEL } from './lib';
+import Notifications from './Notifications';
 import Login from './pages/Login';
+import FirstPassword from './pages/FirstPassword';
 import Dashboard from './pages/Dashboard';
 import DailyUpdate from './pages/DailyUpdate';
 import Accounts from './pages/Accounts';
@@ -16,21 +19,39 @@ import Reports from './pages/Reports';
 import ReportView from './pages/ReportView';
 import Files from './pages/Files';
 import Settings from './pages/Settings';
+import Products from './pages/Products';
+import ProductDetail from './pages/ProductDetail';
+import MyWork from './pages/MyWork';
 
-const NAV = [
-  { group: 'Every day', items: [
-    { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
-    { to: '/update', label: 'Daily update', icon: PenLine },
-    { to: '/checklist', label: 'Checklist', icon: ListChecks },
-  ] },
-  { group: 'Business', items: [
-    { to: '/accounts', label: 'Accounts', icon: AtSign },
-    { to: '/kpis', label: 'Targets & KPIs', icon: Target },
-    { to: '/review', label: 'Monthly review', icon: NotebookPen },
-    { to: '/reports', label: 'Reports', icon: FileBarChart },
-    { to: '/files', label: 'Files', icon: FolderLock },
-  ] },
-];
+type Item = { to: string; label: string; icon: typeof Boxes; end?: boolean };
+
+function navFor(isAdmin: boolean): { group: string; items: Item[] }[] {
+  const work: Item[] = isAdmin
+    ? [
+        { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+        { to: '/products', label: 'Products', icon: Boxes },
+        { to: '/queue', label: 'Content queue', icon: Inbox },
+      ]
+    : [
+        { to: '/', label: 'My work', icon: Inbox, end: true },
+        { to: '/products', label: 'My products', icon: Boxes },
+        { to: '/overview', label: 'Growth overview', icon: LayoutDashboard },
+      ];
+  return [
+    { group: 'Work', items: work },
+    { group: 'Every day', items: [
+      { to: '/update', label: 'Daily update', icon: PenLine },
+      { to: '/checklist', label: 'Checklist', icon: ListChecks },
+    ] },
+    { group: 'Business', items: [
+      { to: '/accounts', label: 'Accounts', icon: AtSign },
+      { to: '/kpis', label: 'Targets & KPIs', icon: Target },
+      { to: '/review', label: 'Monthly review', icon: NotebookPen },
+      { to: '/reports', label: 'Reports', icon: FileBarChart },
+      { to: '/files', label: 'Files', icon: FolderLock },
+    ] },
+  ];
+}
 
 function Logo() {
   return (
@@ -44,31 +65,37 @@ function Logo() {
 }
 
 export default function App() {
-  const { user, ready, logout } = useAuth();
+  const { user, ready, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
 
   if (!ready) return <Loading />;
   if (!user) return <Login />;
+  if (user.must_change_password) return <FirstPassword />;
+  const isAdmin = can('admin');
 
   return (
     <div className="shell">
       <div className="mobile-bar">
         <button onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
-        <strong style={{ fontFamily: 'var(--font-display)' }}>Growth Desk</strong>
+        <strong style={{ fontFamily: 'var(--font-display)', flex: 1 }}>Growth Desk</strong>
+        <Notifications dark />
       </div>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
       <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <NavLink to="/" className="brand">
-          <Logo />
-          <div>
-            <div className="brand-name">Growth Desk</div>
-            <div className="brand-sub">Social & business tracker</div>
-          </div>
-        </NavLink>
+        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap', gap: 4 }}>
+          <NavLink to="/" className="brand">
+            <Logo />
+            <div>
+              <div className="brand-name">Growth Desk</div>
+              <div className="brand-sub">Products & social media</div>
+            </div>
+          </NavLink>
+          <span className="desktop-only"><Notifications dark /></span>
+        </div>
         <nav className="nav">
-          {NAV.map((g) => (
+          {navFor(isAdmin).map((g) => (
             <div key={g.group} className="nav">
               <div className="nav-group">{g.group}</div>
               {g.items.map(({ to, label, icon: Icon, end }) => (
@@ -83,13 +110,17 @@ export default function App() {
         </nav>
         <div className="sidebar-foot">
           <div className="who">{user.name}</div>
-          <div style={{ color: '#8e9bb0', fontSize: 12 }}>{user.email} · {user.role}</div>
+          <div style={{ color: '#8e9bb0', fontSize: 12 }}>{ROLE_LABEL[user.role]}</div>
           <button onClick={logout}><LogOut size={14} /> Sign out</button>
         </div>
       </aside>
       <main className="main">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={isAdmin ? <Dashboard /> : <MyWork />} />
+          <Route path="/overview" element={<Dashboard />} />
+          <Route path="/queue" element={<MyWork />} />
+          <Route path="/products" element={<Products />} />
+          <Route path="/products/:id" element={<ProductDetail />} />
           <Route path="/update" element={<DailyUpdate />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/accounts/:id" element={<AccountDetail />} />

@@ -13,7 +13,7 @@ export default function Kpis() {
   const [edit, setEdit] = useState<Record<number, { target: string; comment: string }>>({});
   const [saving, setSaving] = useState(false);
   const [managing, setManaging] = useState(false);
-  const editable = can('manager');
+  const editable = can('admin');
   const cur = todayStr().slice(0, 7);
 
   useEffect(() => {
