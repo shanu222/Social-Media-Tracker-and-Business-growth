@@ -31,10 +31,13 @@ product's details, account numbers and trends, open and completed tasks, recent 
 tasks (with description, action plan, caption, platforms, priority, dates and the reason). The Admin presses
 **Use this** to open it in the task form, edits anything and sends it — or writes their own task.
 
-Providers are tried in `AI_PROVIDER_ORDER` (OpenAI → Gemini → OpenRouter free models → Anthropic). Each tries its
-main model then fallback model(s); temporary errors are retried; an invalid/expired key or exhausted quota skips to the
-next provider. Results are cached for `AI_CACHE_TTL` seconds. **Settings → AI providers** shows every key's status
-(Working, Key invalid or expired, Out of credit/quota, Rate limited, Model not available) with a **Test keys** button.
+AI keys are managed in **Settings → AI providers**: add as many keys as you like (several accounts per provider),
+choose the order with ▲▼, pause, replace, test or delete them. Supported: Google Gemini, Groq, Cerebras, Mistral,
+OpenRouter, Together AI (free tiers/models) and OpenAI, Anthropic, DeepSeek, xAI (paid), plus any OpenAI-compatible
+service. Keys are encrypted with `ENCRYPTION_KEY` and never shown again. The first key that works is used; each key tries
+its models in order; temporary errors are retried; keys that are invalid/expired (skipped 6 h) or out of credit
+(skipped 1 h) are passed over automatically. Keys in `OPENAI_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY`/
+`ANTHROPIC_API_KEY` are imported once on first start. Results are cached for `AI_CACHE_TTL` seconds.
 If no provider works, New task explains why and shows a full **product brief** in text (accounts, growth, open and
 completed tasks, posts, library, detected gaps) that can be copied into any AI chat or used to plan manually.
 

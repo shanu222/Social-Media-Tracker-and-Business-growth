@@ -1,7 +1,7 @@
 import { many, one } from '../db.js';
 import { today, addDays } from '../util.js';
 import { PLATFORMS } from '../routes/accounts.js';
-import { complete, cacheGet, cacheSet, aiEnabled as anyProvider, PROVIDERS } from './aiProviders.js';
+import { complete, cacheGet, cacheSet, aiEnabled as anyKey, providerLabel } from './aiProviders.js';
 
 /*
  * AI task assistant. Runs only when the admin opens "New task" for a product.
@@ -10,8 +10,7 @@ import { complete, cacheGet, cacheSet, aiEnabled as anyProvider, PROVIDERS } fro
  * If every AI provider fails, the admin gets a plain-text product brief to plan from instead.
  */
 
-export const aiEnabled = anyProvider;
-export const aiProviderLabels = () => Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, v.label]));
+export const aiEnabled = anyKey;
 
 export async function productContext(productId) {
   const t0 = today();
@@ -161,7 +160,7 @@ export async function suggestTasks(productId, { goal = '', count = 5, mode = 'pl
     `Return ${Math.min(Math.max(count, 1), 8)} tasks.`,
   ].filter(Boolean).join('\n\n');
 
-  const { result: out, provider, model } = await complete(SYSTEM, user, parseJson);
+  const { result: out, provider, model, keyLabel } = await complete(SYSTEM, user, parseJson);
   const t0 = ctx.today;
   const tasks = out.tasks.slice(0, 8).map((t) => {
     const start = clampInt(t.start_in_days, 0, 60, 0);
@@ -180,7 +179,7 @@ export async function suggestTasks(productId, { goal = '', count = 5, mode = 'pl
       reason: t.reason ? String(t.reason).slice(0, 500) : '',
     };
   });
-  const value = { summary: out.summary ? String(out.summary).slice(0, 1000) : null, gaps, tasks, provider, model };
+  const value = { summary: out.summary ? String(out.summary).slice(0, 1000) : null, gaps, tasks, provider, providerLabel: providerLabel(provider), keyLabel, model };
   cacheSet(key, value);
   return { ...value, cached: false };
 }

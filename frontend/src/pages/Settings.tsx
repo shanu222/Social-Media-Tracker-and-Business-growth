@@ -33,7 +33,7 @@ export default function Settings() {
   return (
     <>
       <div className="page-head"><div><h1>Settings</h1><p>Signed in as {user?.name} ({user?.email}).</p></div></div>
-      <div className="grid cols-2" style={{ marginBottom: 16 }}>
+      <div className="stack" style={{ marginBottom: 16 }}>
         <form className="panel panel-pad stack" style={{ gap: 12 }} onSubmit={changePw}>
           <h2><KeyRound size={18} style={{ verticalAlign: -3 }} /> Change password</h2>
           <div className="field"><label htmlFor="cp">Current password</label><input id="cp" type="password" className="input" required autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} /></div>
@@ -131,53 +131,126 @@ function EmailAndAi() {
   );
 }
 
-interface Prov { provider: string; label: string; keyVar: string; configured: boolean; position: number; models: string[]; state: string; stateText: string; message: string | null; checked_at: string | null; last_ok_at: string | null }
+interface AiKey {
+  id: number; provider: string; providerLabel: string; pricing: string; label: string; key_hint: string | null; models: string[];
+  customModels: boolean; base_url: string | null; position: number; enabled: boolean; state: string; stateText: string;
+  message: string | null; last_model: string | null; checked_at: string | null; last_ok_at: string | null;
+}
+interface Preset { label: string; pricing: string; keyUrl: string; models: string[]; needsBaseUrl: boolean }
+interface KeyForm { id?: number; provider: string; label: string; apiKey: string; models: string; base_url: string }
 
-/** Shows which AI keys work, which expired or ran out of quota, and lets the admin re-test. */
+/** Admin manages AI keys: add several accounts, reorder, pause, replace, test. First healthy key in order is used. */
 function AiProviders() {
   const toast = useToast();
-  const { data, setData } = useData<{ order: string; fallback: boolean; providers: Prov[] }>('/system/ai');
-  const [busy, setBusy] = useState(false);
+  const { data, setData, reload } = useData<{ fallback: boolean; presets: Record<string, Preset>; keys: AiKey[] }>('/system/ai');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [form, setForm] = useState<KeyForm | null>(null);
   if (!data) return null;
-  async function test() {
-    setBusy(true);
-    try {
-      const r = await api.post<{ providers: Prov[] }>('/system/ai/test');
-      setData({ ...data!, providers: r.providers });
-      const ok = r.providers.filter((p) => p.state === 'ok').length;
-      toast(ok ? `${ok} AI provider${ok > 1 ? 's' : ''} working` : 'No AI provider is working — see the reasons below', !ok);
-    } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
+  const keys = data.keys;
+  const setKeys = (k: AiKey[]) => setData({ ...data, keys: k });
+  const replace = (k: AiKey) => setKeys(keys.map((x) => (x.id === k.id ? k : x)));
+
+  async function run<T>(id: string, fn: () => Promise<T>) {
+    setBusy(id);
+    try { return await fn(); } catch (e) { toast((e as Error).message, true); } finally { setBusy(null); }
   }
-  const tone = (s: string) => (s === 'ok' ? 'badge-good' : s === 'invalid' || s === 'quota' ? 'badge-bad' : s === 'not_set' || s === 'unknown' ? '' : 'badge-warn');
-  const working = data.providers.filter((p) => p.state === 'ok').length;
-  const set = data.providers.filter((p) => p.configured).length;
+  const testAll = () => run('all', async () => {
+    const r = await api.post<{ keys: AiKey[] }>('/system/ai/test');
+    setKeys(r.keys);
+    const ok = r.keys.filter((k) => k.state === 'ok').length;
+    toast(ok ? `${ok} key${ok > 1 ? 's' : ''} working` : 'No key is working — see the reasons below', !ok);
+  });
+  const testOne = (k: AiKey) => run(`t${k.id}`, async () => { const r = await api.post<AiKey>(`/system/ai/keys/${k.id}/test`); replace(r); toast(`${r.label}: ${r.stateText}`, r.state !== 'ok'); });
+  const toggle = (k: AiKey) => run(`p${k.id}`, async () => { replace(await api.put<AiKey>(`/system/ai/keys/${k.id}`, { enabled: !k.enabled })); });
+  const remove = (k: AiKey) => window.confirm(`Delete the key "${k.label}"?`) && run(`d${k.id}`, async () => { await api.del(`/system/ai/keys/${k.id}`); reload(); toast('Key deleted'); });
+  const move = (k: AiKey, dir: -1 | 1) => run(`m${k.id}`, async () => {
+    const ids = keys.map((x) => x.id); const i = ids.indexOf(k.id); const j = i + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    setKeys((await api.post<{ keys: AiKey[] }>('/system/ai/keys/reorder', { ids })).keys);
+  });
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!form) return;
+    const models = form.models.split(',').map((m) => m.trim()).filter(Boolean);
+    const body = { provider: form.provider, label: form.label.trim(), apiKey: form.apiKey.trim(), models, base_url: form.base_url.trim() };
+    await run('save', async () => {
+      const k = form.id ? await api.put<AiKey>(`/system/ai/keys/${form.id}`, body) : await api.post<AiKey>('/system/ai/keys', body);
+      toast(`${k.label}: ${k.stateText}`, k.state !== 'ok');
+      setForm(null);
+      reload();
+    });
+  }
+  const tone = (s: string) => (s === 'ok' ? 'badge-good' : s === 'invalid' || s === 'quota' ? 'badge-bad' : s === 'unknown' || s === 'paused' ? '' : 'badge-warn');
+  const working = keys.filter((k) => k.state === 'ok').length;
+  const preset = form ? data.presets[form.provider] : null;
+
   return (
     <div className="panel panel-pad stack" style={{ gap: 10 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2><Sparkles size={18} style={{ verticalAlign: -3 }} /> AI providers</h2>
-        <button className="btn btn-sm" onClick={test} disabled={busy || !set}>{busy ? 'Testing…' : 'Test keys'}</button>
+        <div className="row">
+          {keys.length > 0 && <button className="btn btn-sm" onClick={testAll} disabled={!!busy}>{busy === 'all' ? 'Testing…' : 'Test all'}</button>}
+          <button className="btn btn-sm btn-primary" onClick={() => setForm({ provider: 'gemini', label: '', apiKey: '', models: data.presets.gemini.models.join(', '), base_url: '' })}><Plus size={14} /> Add key</button>
+        </div>
       </div>
       <p className="muted" style={{ fontSize: 13.5 }}>
-        {set ? <>Tried in this order{data.fallback ? '; if one fails or its key expires, the next is used automatically' : ' (fallback is off)'}. Suggestions only appear when you press <b>New task</b>.</>
-          : <>No AI key is set. Add <b>OPENAI_API_KEY</b>, <b>GEMINI_API_KEY</b> or <b>OPENROUTER_API_KEY</b> on Railway. Without AI, New task shows a full product brief instead.</>}
+        Keys are tried from top to bottom. The first one that works is used; expired keys and keys out of credit are skipped automatically.
+        Add as many accounts as you like — free ones first saves money. Suggestions only appear when you press <b>New task</b>.
       </p>
-      {set > 0 && working === 0 && data.providers.some((p) => p.configured && p.state !== 'unknown') && (
-        <div className="notice"><AlertTriangle /><span>No AI provider is working right now. Replace the keys marked red on Railway, then press <b>Test keys</b>.</span></div>
+      {keys.length > 0 && working === 0 && keys.some((k) => k.enabled && k.state !== 'unknown') && (
+        <div className="notice"><AlertTriangle /><span>No AI key is working right now. Replace the keys marked red or add a free one (Gemini, Groq, Cerebras or Mistral).</span></div>
       )}
-      <div className="table-wrap" style={{ border: '1px solid var(--line-2)', borderRadius: 10 }}>
-        <table className="t" style={{ fontSize: 13.5 }}>
-          <thead><tr><th>#</th><th>Provider</th><th>Status</th><th>Models</th><th>Last checked</th></tr></thead>
-          <tbody>{data.providers.map((p) => (
-            <tr key={p.provider} style={!p.configured ? { opacity: 0.6 } : undefined}>
-              <td className="faint">{p.configured ? p.position : ''}</td>
-              <td><b>{p.label}</b><div className="faint" style={{ fontSize: 12 }}>{p.keyVar}</div></td>
-              <td><span className={`badge ${tone(p.state)}`}>{p.stateText}</span>{p.message && <div className="faint" style={{ fontSize: 12, maxWidth: 260 }}>{p.message}</div>}</td>
-              <td className="muted" style={{ fontSize: 12.5, maxWidth: 240 }}>{p.models.join(' → ') || '—'}</td>
-              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{p.checked_at ? when(p.checked_at) : '—'}{p.last_ok_at && p.state !== 'ok' && <div className="faint" style={{ fontSize: 12 }}>last worked {when(p.last_ok_at)}</div>}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>
+      {keys.length === 0 ? <div className="empty" style={{ padding: 20 }}><h3>No AI keys yet</h3><p>Add a free Gemini or Groq key to get task suggestions.</p></div> : (
+        <div className="stack" style={{ gap: 8 }}>
+          {keys.map((k, i) => (
+            <div key={k.id} className="row" style={{ border: '1px solid var(--line-2)', borderRadius: 10, padding: '10px 12px', flexWrap: 'nowrap', alignItems: 'flex-start', opacity: k.enabled ? 1 : 0.6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <button className="btn btn-ghost btn-icon btn-sm" style={{ height: 22, width: 26 }} disabled={i === 0 || !!busy} onClick={() => move(k, -1)} aria-label="Move up">▲</button>
+                <span className="faint num" style={{ textAlign: 'center', fontSize: 12 }}>{i + 1}</span>
+                <button className="btn btn-ghost btn-icon btn-sm" style={{ height: 22, width: 26 }} disabled={i === keys.length - 1 || !!busy} onClick={() => move(k, 1)} aria-label="Move down">▼</button>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="row" style={{ gap: 6 }}>
+                  <b>{k.label}</b><span className="badge">{k.providerLabel}</span><span className="faint" style={{ fontSize: 12 }}>{k.pricing}</span>
+                </div>
+                <div className="faint" style={{ fontSize: 12.5, overflowWrap: 'anywhere' }}>Key {k.key_hint} · {k.models.join(' → ')}</div>
+                <div style={{ marginTop: 4 }}>
+                  <span className={`badge ${tone(k.state)}`}>{k.stateText}</span>
+                  {k.checked_at && <span className="faint" style={{ fontSize: 12, marginLeft: 6 }}>checked {when(k.checked_at)}{k.last_ok_at && k.state !== 'ok' ? ` · last worked ${when(k.last_ok_at)}` : ''}</span>}
+                  {k.message && k.state !== 'ok' && <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>{k.message}</div>}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 210 }}>
+                <button className="btn btn-sm" disabled={!!busy} onClick={() => testOne(k)}>{busy === `t${k.id}` ? 'Testing…' : 'Test'}</button>
+                <button className="btn btn-sm" onClick={() => setForm({ id: k.id, provider: k.provider, label: k.label, apiKey: '', models: k.models.join(', '), base_url: k.base_url || '' })}>Edit</button>
+                <button className="btn btn-sm btn-ghost" disabled={!!busy} onClick={() => toggle(k)}>{k.enabled ? 'Pause' : 'Resume'}</button>
+                <button className="btn btn-sm btn-ghost btn-danger" disabled={!!busy} onClick={() => remove(k)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {form && preset && (
+        <Modal title={form.id ? `Edit ${form.label}` : 'Add an AI key'} onClose={() => setForm(null)}
+          footer={<><button className="btn" onClick={() => setForm(null)}>Cancel</button><button className="btn btn-primary" form="aikey-form" disabled={busy === 'save'}>{busy === 'save' ? 'Saving & testing…' : form.id ? 'Save & test' : 'Add & test'}</button></>}>
+          <form id="aikey-form" className="form-grid" onSubmit={save}>
+            <div className="field full">
+              <label htmlFor="akp">Provider</label>
+              <select id="akp" className="input" value={form.provider} disabled={!!form.id}
+                onChange={(e) => { const p = e.target.value; setForm({ ...form, provider: p, models: data.presets[p].models.join(', '), label: form.label }); }}>
+                {Object.entries(data.presets).map(([k, p]) => <option key={k} value={k}>{p.label} — {p.pricing}</option>)}
+              </select>
+              {preset.keyUrl && <span className="hint">Get a key at <a href={preset.keyUrl} target="_blank" rel="noreferrer noopener">{preset.keyUrl.replace(/^https:\/\//, '')}</a></span>}
+            </div>
+            <div className="field"><label htmlFor="akl">Name</label><input id="akl" className="input" required value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder={`e.g. ${preset.label} — personal account`} /></div>
+            <div className="field"><label htmlFor="akk">API key</label><input id="akk" className="input" type="password" autoComplete="new-password" required={!form.id} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? 'Leave empty to keep the current key' : 'Paste the key'} /><span className="hint">Encrypted. Never shown again.</span></div>
+            <div className="field full"><label htmlFor="akm">Models, in order</label><input id="akm" className="input" value={form.models} onChange={(e) => setForm({ ...form, models: e.target.value })} placeholder="model-a, model-b" /><span className="hint">If the first model fails, the next one is tried. Defaults usually work.</span></div>
+            {(preset.needsBaseUrl || form.base_url) && <div className="field full"><label htmlFor="akb">Base URL</label><input id="akb" className="input" type="url" required={preset.needsBaseUrl} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://api.example.com/v1" /></div>}
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

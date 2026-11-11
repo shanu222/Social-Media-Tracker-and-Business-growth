@@ -9,7 +9,7 @@ import { ah, parse } from '../util.js';
 import { z } from 'zod';
 import { emailProvider, sendEmail, appUrl } from '../mailer.js';
 import { aiEnabled } from '../services/ai.js';
-import { providerStatus, testProviders } from '../services/aiProviders.js';
+import { PRESETS, listKeys, addKey, updateKey, reorderKeys, testKey, testAllKeys, presentKey } from '../services/aiProviders.js';
 
 const router = Router();
 
@@ -17,7 +17,7 @@ router.get('/status', ah(async (_req, res) => {
   const last = await one('SELECT created_at, size, trigger FROM backups ORDER BY created_at DESC LIMIT 1');
   res.json({
     storageEnabled, timezone: config.timezone, backupSchedule: config.backupCron, lastBackup: last,
-    email: emailProvider(), appUrl: appUrl(), ai: aiEnabled(),
+    email: emailProvider(), appUrl: appUrl(), ai: await aiEnabled(),
   });
 }));
 
@@ -53,15 +53,59 @@ router.post('/test-email', requireRole('admin'), ah(async (req, res) => {
   res.json({ ok: true, to: target });
 }));
 
-/** AI key health for the admin. */
+/* ---------------- AI keys (admin) ---------------- */
+const presets = () => Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, { label: v.label, pricing: v.pricing, keyUrl: v.keyUrl, models: v.models, needsBaseUrl: k === 'custom' }]));
+const keySchema = z.object({
+  provider: z.enum(Object.keys(PRESETS)),
+  label: z.string().trim().min(1).max(80),
+  apiKey: z.string().trim().min(8).max(500),
+  models: z.array(z.string().trim().min(1).max(150)).max(10).optional(),
+  base_url: z.string().trim().url().max(300).or(z.literal('')).optional(),
+  test: z.boolean().default(true),
+});
+
 router.get('/ai', requireRole('admin'), ah(async (_req, res) => {
-  res.json({ order: (process.env.AI_PROVIDER_ORDER || 'openai,gemini,openrouter,anthropic'), fallback: process.env.AI_FALLBACK_ENABLED !== 'false', providers: await providerStatus() });
+  res.json({ fallback: process.env.AI_FALLBACK_ENABLED !== 'false', presets: presets(), keys: await listKeys() });
+}));
+
+router.post('/ai/keys', requireRole('admin'), ah(async (req, res) => {
+  const b = parse(keySchema, req.body);
+  if (b.provider === 'custom' && !b.base_url) return res.status(400).json({ error: 'Enter the base URL of the OpenAI-compatible service.' });
+  if (b.provider === 'custom' && !b.models?.length) return res.status(400).json({ error: 'Enter at least one model name.' });
+  const k = await addKey(b);
+  await audit(req, 'ai.key_added', 'ai_key', k.id, { provider: k.provider, label: k.label });
+  res.status(201).json(b.test ? await testKey(k.id) : presentKey(k));
+}));
+
+router.put('/ai/keys/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
+  const b = parse(keySchema.partial().extend({ enabled: z.boolean().optional(), apiKey: z.string().trim().min(8).max(500).or(z.literal('')).optional() }), req.body);
+  const k = await updateKey(Number(req.params.id), { ...b, apiKey: b.apiKey || undefined });
+  if (!k) return res.status(404).json({ error: 'Key not found.' });
+  await audit(req, b.apiKey ? 'ai.key_replaced' : 'ai.key_updated', 'ai_key', k.id, { label: k.label });
+  res.json(b.apiKey || b.models || b.base_url !== undefined ? await testKey(k.id) : presentKey(k));
+}));
+
+router.delete('/ai/keys/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
+  const k = await one('DELETE FROM ai_keys WHERE id = $1 RETURNING label, provider', [Number(req.params.id)]);
+  if (!k) return res.status(404).json({ error: 'Key not found.' });
+  await audit(req, 'ai.key_deleted', 'ai_key', req.params.id, k);
+  res.json({ ok: true });
+}));
+
+router.post('/ai/keys/reorder', requireRole('admin'), ah(async (req, res) => {
+  const { ids } = parse(z.object({ ids: z.array(z.number().int().positive()).max(100) }), req.body);
+  await reorderKeys(ids);
+  res.json({ keys: await listKeys() });
+}));
+
+router.post('/ai/keys/:id(\\d+)/test', requireRole('admin'), ah(async (req, res) => {
+  res.json(await testKey(Number(req.params.id)));
 }));
 
 router.post('/ai/test', requireRole('admin'), ah(async (req, res) => {
-  const providers = await testProviders();
-  await audit(req, 'ai.tested', 'system', null, { working: providers.filter((p) => p.state === 'ok').map((p) => p.provider) });
-  res.json({ providers });
+  const keys = await testAllKeys();
+  await audit(req, 'ai.tested', 'system', null, { working: keys.filter((k) => k.state === 'ok').map((k) => k.label) });
+  res.json({ keys });
 }));
 
 export default router;

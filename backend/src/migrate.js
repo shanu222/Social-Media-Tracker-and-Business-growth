@@ -353,6 +353,25 @@ CREATE TABLE IF NOT EXISTS job_runs (key TEXT NOT NULL, run_on DATE NOT NULL, PR
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_email TEXT;
 
+-- AI keys managed by the admin in Settings (several accounts per provider, tried in position order)
+CREATE TABLE IF NOT EXISTS ai_keys (
+  id          SERIAL PRIMARY KEY,
+  provider    TEXT NOT NULL,
+  label       TEXT NOT NULL,
+  key_enc     TEXT NOT NULL,
+  key_hint    TEXT,
+  models      TEXT[] NOT NULL DEFAULT '{}',
+  base_url    TEXT,
+  position    INTEGER NOT NULL DEFAULT 0,
+  enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+  state       TEXT NOT NULL DEFAULT 'unknown',
+  message     TEXT,
+  last_model  TEXT,
+  checked_at  TIMESTAMPTZ,
+  last_ok_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS ai_status (
   provider    TEXT PRIMARY KEY,
   state       TEXT NOT NULL,

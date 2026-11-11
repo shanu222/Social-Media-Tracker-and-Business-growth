@@ -10,10 +10,10 @@ export interface Suggestion {
   kind: 'post' | 'general'; title: string; description: string; instructions: string; caption: string; hashtags: string;
   platforms: string[]; priority: string; start_date: string; due_date: string; reason: string;
 }
-interface Ok { ok: true; summary: string | null; gaps: string[]; tasks: Suggestion[]; provider: string; providerLabel: string; model: string; cached: boolean }
+interface Ok { ok: true; summary: string | null; gaps: string[]; tasks: Suggestion[]; provider: string; providerLabel: string; keyLabel: string; model: string; cached: boolean }
 interface Failed {
   ok: false; reason: string; brief: string; gaps: string[];
-  failures: { provider: string; label: string; models: string[]; state: string; stateText: string; message: string }[];
+  failures: { keyId: number; provider: string; label: string; models: string[]; state: string; stateText: string; message: string }[];
 }
 
 /**
@@ -96,7 +96,7 @@ export default function TaskComposer({ productId: fixed, people, onClose, onSave
 
         {res && res.ok && (
           <>
-            <div className="notice info"><Sparkles /><span>{res.summary || 'Suggestions based on this product\'s data.'} <span className="faint">({res.providerLabel}{res.cached ? ', saved from earlier' : ''})</span></span></div>
+            <div className="notice info"><Sparkles /><span>{res.summary || 'Suggestions based on this product\'s data.'} <span className="faint">({res.keyLabel || res.providerLabel}{res.cached ? ', saved from earlier' : ''})</span></span></div>
             {res.gaps.length > 0 && (
               <details><summary className="muted" style={{ cursor: 'pointer' }}>{res.gaps.length} gaps found in the data</summary>
                 <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{res.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul></details>
@@ -140,10 +140,10 @@ function Unavailable({ r, onWrite }: { r: Failed; onWrite: () => void }) {
           <b>AI suggestions aren't available right now.</b> {r.reason}
           {r.failures.length > 0 && (
             <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-              {r.failures.map((f) => <li key={f.provider}><b>{f.label}</b>: {f.stateText}{f.message ? ` — ${f.message}` : ''}</li>)}
+              {r.failures.map((f) => <li key={f.keyId}><b>{f.label}</b>: {f.stateText}{f.message ? ` — ${f.message}` : ''}</li>)}
             </ul>
           )}
-          <div style={{ marginTop: 6 }}>Check or replace the keys in <Link to="/settings">Settings → AI providers</Link>. Meanwhile, here is everything known about this product so you can plan the task yourself.</div>
+          <div style={{ marginTop: 6 }}>Check, replace or add keys in <Link to="/settings">Settings → AI providers</Link>. Meanwhile, here is everything known about this product so you can plan the task yourself.</div>
         </div>
       </div>
       <div>

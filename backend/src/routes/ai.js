@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { requireProductAccess } from '../access.js';
-import { suggestTasks, productBrief, aiProviderLabels } from '../services/ai.js';
-import { providerStatus, STATE_TEXT } from '../services/aiProviders.js';
+import { suggestTasks, productBrief } from '../services/ai.js';
+import { STATE_TEXT, providerLabel } from '../services/aiProviders.js';
 import { ah, parse } from '../util.js';
 
 /**
@@ -25,22 +25,20 @@ router.post('/suggest', ah(async (req, res) => {
   try {
     const r = await suggestTasks(req.productId, b);
     if (!r.cached) await audit(req, 'ai.suggested', 'product', req.productId, { provider: r.provider, model: r.model, goal: b.goal || null }, req.productId);
-    res.json({ ok: true, ...r, providerLabel: aiProviderLabels()[r.provider] });
+    res.json({ ok: true, ...r });
   } catch (e) {
     if (e.code !== 'AI_UNAVAILABLE') throw e;
-    const labels = aiProviderLabels();
     const failures = [];
     for (const a of e.attempts || []) {
-      const last = failures.find((f) => f.provider === a.provider);
-      if (last) { last.models.push(a.model); last.state = a.state; last.message = a.message; }
-      else failures.push({ provider: a.provider, label: labels[a.provider], models: [a.model], state: a.state, message: a.message });
+      const last = failures.find((f) => f.keyId === a.keyId);
+      if (last) { if (a.model) last.models.push(a.model); last.state = a.state; last.message = a.message; }
+      else failures.push({ keyId: a.keyId, provider: a.provider, label: `${a.label} — ${providerLabel(a.provider)}`, models: a.model ? [a.model] : [], state: a.state, message: a.message });
     }
     const brief = await productBrief(req.productId);
     res.json({
       ok: false,
-      reason: (e.attempts || []).length ? 'Every AI provider failed for this request.' : 'No AI key is set on the server.',
+      reason: (e.attempts || []).length ? 'Every AI key failed for this request.' : 'No AI key has been added yet.',
       failures: failures.map((f) => ({ ...f, stateText: STATE_TEXT[f.state] || f.state })),
-      providers: await providerStatus(),
       brief: brief.text,
       gaps: brief.gaps,
     });

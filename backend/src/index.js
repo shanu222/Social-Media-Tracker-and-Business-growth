@@ -30,6 +30,7 @@ import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
 import notificationRoutes from './routes/notifications.js';
 import { syncAll } from './services/sync.js';
+import { importEnvKeys } from './services/aiProviders.js';
 
 const app = express();
 app.set('trust proxy', 1); // Railway sits behind a proxy
@@ -176,6 +177,7 @@ async function start() {
   await bootstrapAdmin();
   await bootstrapManager();
   await bootstrapNotifyEmails();
+  await importEnvKeys().catch((e) => console.error('[ai] env import failed', e.message));
   const tz = { timezone: config.timezone };
   // Pull follower counts from official APIs every 6 hours
   cron.schedule(process.env.SYNC_CRON || '15 */6 * * *', () =>
