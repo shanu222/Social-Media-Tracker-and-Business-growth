@@ -357,3 +357,8 @@ table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
   .prod-hero h1 { font-size: 24px; }
   .chat { height: calc(100vh - 230px); }
 }
+.task-btn { display: block; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit; color: inherit; transition: box-shadow .15s ease; }
+.task-btn:hover { box-shadow: 0 4px 16px rgba(23,33,51,.10), 0 0 0 1px rgba(23,33,51,.08); }
+.kpi-on { box-shadow: 0 0 0 2px var(--signal) !important; }
+input[type=range] { accent-color: var(--growth); width: 100%; }
+@media (max-width: 900px) { .kpis[style] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }

@@ -3,6 +3,40 @@
 A private web app where the company owner manages every product's social media, and the
 Social Media Manager sees exactly what to post, posts it, and reports back.
 
+## Task management
+
+1. The Admin creates a task on a product (or asks **AI** to draft some from the product's data).
+2. The Admin assigns it to any team member — they automatically get access to that product.
+3. The task appears in that person's **My work** and they receive an **email** with the task, product,
+   description, priority, due date and an **Open task** button.
+4. Reminders go out automatically: 2 days and 1 day before the deadline, on the day, and when overdue
+   (day 1, then every 3 days). Tasks not started after 3 days get a nudge. Admins get a daily summary email.
+5. The person updates the **% complete**, adds comments and links, or presses **Ask admin for clarification** (emails the admin).
+6. On **Mark completed** the Admin is notified in the app and by email. Changes to deadline, priority or
+   instructions email the assignee and are written into the task history.
+7. Every file and link stays in the product's **Library** permanently — even after the task is done.
+
+| Who | Sees |
+|---|---|
+| Admin | **Tasks** dashboard: not started / in progress / overdue / completed / drafts, team progress table (open, overdue, average completion, on-time %), filters by product and person |
+| Team member | **My work**: Overdue, New, Due in 7 days, In progress, Not started, Completed — or grouped by product |
+
+Task fields: type (social post / general), title, description, product, assignee, priority, start date, due date,
+instructions & notes, caption & hashtags & platforms (post tasks), links (Google Drive, YouTube, reels…), uploads,
+status and percentage complete.
+
+### AI task assistant
+**Suggest with AI** on a product reads its details, account numbers and trends, open and completed tasks, recent
+posts and library, then returns a short situation summary, the **gaps** it found and draft tasks with description,
+action plan, caption, platforms, priority, start and due dates and the reason for each. Drafts are invisible to the
+team until the Admin reviews, edits, assigns and presses **Assign & send** (or deletes them). "Follow-ups to completed
+work" mode suggests next steps after finished tasks. Passwords, tokens and login emails are never sent to the AI.
+
+### Content library
+Upload images, videos, reels and documents, or paste a link (Google Drive, Dropbox, YouTube, Instagram, Canva…).
+Each entry records name, product, date, who shared it, type, the link and the related task. Files up to 20 MB pass
+through the API; larger ones (up to 5 GB) upload **directly** to Cloudflare R2 with a one-hour signed link.
+
 ## Product workspaces (one page per product)
 
 | Tab | What's there |
@@ -136,6 +170,27 @@ Tables are created automatically on start-up, along with the default checklist a
 4. Redeploy. The Files page unlocks, every generated report keeps a PDF copy in R2,
    and an encrypted backup runs every night at 02:00 (change with `BACKUP_CRON`).
 
+### 2b. Email, AI and large uploads
+
+**Email (Resend, recommended):** create a free account at resend.com → **Domains** → add and verify
+`sustainablesolution360.com` (add the DNS records it shows) → **API Keys** → create a key. On Railway set:
+`RESEND_API_KEY`, `EMAIL_FROM="Growth Desk <tasks@sustainablesolution360.com>"` and `APP_URL` (your Vercel URL).
+Then **Settings → Send a test email to me**. (SMTP via `SMTP_HOST/PORT/USER/PASS` also works on paid Railway plans.)
+
+**AI:** create a key at console.anthropic.com and set `ANTHROPIC_API_KEY` on Railway (`AI_MODEL` optional).
+
+**Large uploads:** in Cloudflare → R2 → your bucket → **Settings → CORS Policy → Add**, paste:
+```json
+[
+  {
+    "AllowedOrigins": ["https://YOUR-APP.vercel.app"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
 ### 3. Frontend on Vercel
 
 1. Vercel → **Add New → Project** → import this repo.
@@ -183,7 +238,10 @@ All routes are under `/api` and need `Authorization: Bearer <token>` except `POS
 | Reports | `GET/POST /reports`, `GET /reports/:id`, `GET /reports/:id/pdf`, `DELETE /reports/:id` |
 | Files (R2) | `GET/POST /files`, `GET /files/:id/download`, `DELETE /files/:id` |
 | Products | `GET/POST /products`, `GET/PUT/DELETE /products/:id`, `POST /products/:id/image`, `GET /products/:id/activity` |
-| Content tasks | `GET/POST /products/:id/tasks`, `PUT/DELETE /products/:id/tasks/:taskId`, `PATCH …/status`, `GET /tasks/mine` |
+| Tasks | `GET/POST /products/:id/tasks`, `GET/PUT/DELETE …/tasks/:taskId`, `POST …/send`, `PATCH …/status`, `PATCH …/progress`, `POST …/comments`, `POST …/links`, `GET /tasks/mine`, `GET /tasks/all` |
+| AI | `POST /products/:id/ai/suggest` |
+| Library | `GET /products/:id/library?type=&q=`, `POST/DELETE /products/:id/library/links`, `POST /files/presign`, `POST /files/complete` |
+| Email | `GET /system/emails`, `POST /system/test-email`, `PATCH /auth/preferences` |
 | Published posts | `GET/POST /products/:id/posts`, `DELETE /products/:id/posts/:postId` |
 | Chat | `GET /products/:id/messages?after=`, `POST /products/:id/messages` |
 | Notifications | `GET /notifications`, `POST /notifications/read` |

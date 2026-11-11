@@ -1,15 +1,47 @@
 import { useEffect, useState } from 'react';
 import { Copy, Download, FileText, Film, Image as ImageIcon } from 'lucide-react';
-import { api } from '../../api';
+import { api, ApiError } from '../../api';
 import { useToast, bytes } from '../../lib';
 
 export interface FileLite { id: number; name: string; mime: string; size: number }
 
-export async function uploadFile(file: File, meta: Record<string, string | number | null | undefined>) {
-  const fd = new FormData();
-  for (const [k, v] of Object.entries(meta)) if (v !== null && v !== undefined && v !== '') fd.append(k, String(v));
-  fd.append('file', file);
-  return api.upload<{ id: number }>('/files', fd);
+const SMALL_LIMIT = 20 * 1024 * 1024;
+
+/**
+ * Uploads a file. Small files go through the API; large ones (videos, reels) are sent straight to
+ * Cloudflare R2 with a signed link so nothing big passes through the server.
+ */
+export async function uploadFile(
+  file: File,
+  meta: Record<string, string | number | null | undefined>,
+  onProgress?: (pct: number) => void
+) {
+  if (file.size <= SMALL_LIMIT) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(meta)) if (v !== null && v !== undefined && v !== '') fd.append(k, String(v));
+    fd.append('file', file);
+    const r = await api.upload<{ id: number }>('/files', fd);
+    onProgress?.(100);
+    return r;
+  }
+  const body = {
+    name: file.name, mime: file.type || 'application/octet-stream', size: file.size,
+    category: meta.category || 'content', product_id: meta.product_id ? Number(meta.product_id) : null,
+    task_id: meta.task_id ? Number(meta.task_id) : null, note: meta.note || null,
+  };
+  const p = await api.post<{ key: string; uploadUrl: string; headers: Record<string, string> }>('/files/presign', body);
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', p.uploadUrl);
+    for (const [k, v] of Object.entries(p.headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 99));
+    xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new ApiError(`Upload to cloud storage failed (${xhr.status}).`, xhr.status)));
+    xhr.onerror = () => reject(new ApiError('Upload to cloud storage was blocked. Add the CORS rule to the R2 bucket (see README).', 0));
+    xhr.send(file);
+  });
+  const r = await api.post<{ id: number }>('/files/complete', { ...body, key: p.key });
+  onProgress?.(100);
+  return r;
 }
 
 export async function openFile(id: number) {
@@ -64,8 +96,26 @@ export const PRIORITY: Record<string, { label: string; color: string; badge: str
 };
 
 export const STATUS: Record<string, { label: string; badge: string }> = {
-  todo: { label: 'To post', badge: 'badge-info' },
+  draft: { label: 'Draft', badge: '' },
+  todo: { label: 'Not started', badge: 'badge-info' },
   in_progress: { label: 'In progress', badge: 'badge-warn' },
-  done: { label: 'Posted', badge: 'badge-good' },
+  done: { label: 'Completed', badge: 'badge-good' },
   cancelled: { label: 'Cancelled', badge: '' },
 };
+
+export const LINK_TYPES: Record<string, string> = {
+  drive: 'Drive / cloud folder', video: 'Video', reel: 'Reel / short', image: 'Image', document: 'Document',
+  social: 'Social post', link: 'Web link', other: 'Other',
+};
+
+export function Progress({ value, small }: { value: number; small?: boolean }) {
+  const color = value >= 100 ? 'var(--growth)' : value >= 50 ? '#2fa585' : value > 0 ? 'var(--signal)' : 'var(--line)';
+  return (
+    <div className="row" style={{ gap: 8, flexWrap: 'nowrap', minWidth: small ? 90 : 140 }} aria-label={`${value}% complete`}>
+      <div style={{ flex: 1, height: small ? 5 : 7, background: 'var(--line-2)', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ width: `${value}%`, height: '100%', background: color, borderRadius: 4, transition: 'width .3s ease' }} />
+      </div>
+      <span className="num" style={{ fontSize: small ? 12 : 13, fontWeight: 600, minWidth: 34, textAlign: 'right' }}>{value}%</span>
+    </div>
+  );
+}

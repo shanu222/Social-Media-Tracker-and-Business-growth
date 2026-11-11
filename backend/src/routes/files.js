@@ -7,7 +7,8 @@ import { many, one } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { config } from '../config.js';
-import { storageEnabled, putObject, deleteObject, signedDownloadUrl, signedViewUrl } from '../storage.js';
+import { storageEnabled, putObject, deleteObject, signedDownloadUrl, signedViewUrl, signedUploadUrl, headObject } from '../storage.js';
+import { contentTypeFor } from './library.js';
 import { canAccessProduct, productIdsFor } from '../access.js';
 import { notify, productAudience } from '../notify.js';
 import { ah, parse } from '../util.js';
@@ -82,10 +83,10 @@ router.post('/', requireRole('manager'), upload.single('file'), ah(async (req, r
   const key = `files/${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}${path.extname(safeName).toLowerCase()}`;
   await putObject(key, req.file.buffer, req.file.mimetype);
   const f = await one(
-    `INSERT INTO files (storage_key, name, mime, size, category, account_id, product_id, task_id, note, uploaded_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, mime, size, category, note, created_at, product_id, task_id`,
+    `INSERT INTO files (storage_key, name, mime, size, category, account_id, product_id, task_id, note, uploaded_by, content_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, name, mime, size, category, note, created_at, product_id, task_id`,
     [key, safeName, req.file.mimetype, req.file.size, meta.category, meta.account_id ?? null, meta.product_id ?? null,
-      meta.task_id ?? null, meta.note || null, req.user.id]
+      meta.task_id ?? null, meta.note || null, req.user.id, contentTypeFor('', req.file.mimetype)]
   );
   await audit(req, 'file.uploaded', 'file', f.id, { name: f.name, size: f.size }, meta.product_id ?? null);
   if (meta.product_id && !meta.task_id) {
@@ -98,6 +99,53 @@ router.post('/', requireRole('manager'), upload.single('file'), ah(async (req, r
 }));
 
 /** Returns a 5-minute signed link. The bucket itself is never public. */
+const MAX_DIRECT_GB = Number(process.env.MAX_DIRECT_UPLOAD_GB || 5);
+const directSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  mime: z.string().min(3).max(150),
+  size: z.number().int().positive(),
+  category: z.enum(CATEGORIES).default('content'),
+  product_id: z.number().int().positive().nullish(),
+  task_id: z.number().int().positive().nullish(),
+  note: z.string().max(500).nullish(),
+});
+
+/** Step 1 of a large upload: get a one-hour signed URL to PUT the file straight into R2. */
+router.post('/presign', requireRole('manager'), ah(async (req, res) => {
+  if (!storageEnabled) return res.status(503).json({ error: 'Cloud storage is not configured yet.' });
+  const b = parse(directSchema, req.body);
+  if (!ALLOWED.has(b.mime)) return res.status(400).json({ error: 'This file type is not allowed. Upload images, videos, PDFs, CSV or Office files.' });
+  if (b.size > MAX_DIRECT_GB * 1024 ** 3) return res.status(413).json({ error: `Files can be up to ${MAX_DIRECT_GB} GB. Share bigger files as a Google Drive link.` });
+  if (b.product_id && !(await canAccessProduct(req.user, b.product_id))) return res.status(404).json({ error: 'Product not found.' });
+  const safeName = path.basename(b.name).replace(/[^\w.\- ]+/g, '_').slice(0, 150) || 'file';
+  const key = `uploads/${req.user.id}/${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}${path.extname(safeName).toLowerCase()}`;
+  res.json({ key, uploadUrl: await signedUploadUrl(key, b.mime), headers: { 'Content-Type': b.mime } });
+}));
+
+/** Step 2: confirm the object landed in R2 and register it (in the product library too). */
+router.post('/complete', requireRole('manager'), ah(async (req, res) => {
+  const b = parse(directSchema.extend({ key: z.string().regex(/^uploads\/\d+\/\d{4}-\d{2}\/[0-9a-f-]{36}(\.[a-z0-9]{1,8})?$/) }), req.body);
+  if (!b.key.startsWith(`uploads/${req.user.id}/`)) return res.status(403).json({ error: 'Upload key does not belong to you.' });
+  if (b.product_id && !(await canAccessProduct(req.user, b.product_id))) return res.status(404).json({ error: 'Product not found.' });
+  if (b.task_id) {
+    const t = await one('SELECT product_id FROM tasks WHERE id = $1', [b.task_id]);
+    if (!t || t.product_id !== b.product_id) return res.status(400).json({ error: 'That task belongs to another product.' });
+  }
+  const head = await headObject(b.key);
+  if (!head) return res.status(400).json({ error: 'The upload did not reach cloud storage. Check the bucket CORS rule and try again.' });
+  const exists = await one('SELECT id FROM files WHERE storage_key = $1', [b.key]);
+  if (exists) return res.json(exists);
+  const safeName = path.basename(b.name).replace(/[^\w.\- ]+/g, '_').slice(0, 150) || 'file';
+  const f = await one(
+    `INSERT INTO files (storage_key, name, mime, size, category, product_id, task_id, note, uploaded_by, content_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, name, mime, size, category, note, created_at, product_id, task_id`,
+    [b.key, safeName, b.mime, Number(head.ContentLength) || b.size, b.category, b.product_id ?? null, b.task_id ?? null,
+      b.note || null, req.user.id, contentTypeFor('', b.mime)]
+  );
+  await audit(req, 'file.uploaded', 'file', f.id, { name: f.name, size: f.size, direct: true }, b.product_id ?? null);
+  res.status(201).json(f);
+}));
+
 async function loadFile(req) {
   const f = await one('SELECT * FROM files WHERE id = $1', [Number(req.params.id)]);
   if (!f || (f.product_id && !(await canAccessProduct(req.user, f.product_id)))) return null;

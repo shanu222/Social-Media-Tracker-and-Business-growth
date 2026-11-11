@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config, r2Enabled } from './config.js';
 
@@ -56,4 +56,19 @@ export async function signedDownloadUrl(key, filename, seconds = 300) {
     }),
     { expiresIn: seconds }
   );
+}
+
+/** Pre-signed PUT so the browser uploads large files straight to R2 (needs a bucket CORS rule). */
+export async function signedUploadUrl(key, contentType, seconds = 3600) {
+  ensure();
+  return getSignedUrl(client, new PutObjectCommand({ Bucket: config.r2.bucket, Key: key, ContentType: contentType }), { expiresIn: seconds });
+}
+
+export async function headObject(key) {
+  ensure();
+  try {
+    return await client.send(new HeadObjectCommand({ Bucket: config.r2.bucket, Key: key }));
+  } catch {
+    return null;
+  }
 }

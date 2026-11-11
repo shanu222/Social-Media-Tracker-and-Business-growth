@@ -67,7 +67,7 @@ router.get(
   '/me',
   requireAuth,
   ah(async (req, res) => {
-    const u = await one('SELECT id, email, name, role, must_change_password FROM users WHERE id = $1', [req.user.id]);
+    const u = await one('SELECT id, email, name, role, must_change_password, email_notifications FROM users WHERE id = $1', [req.user.id]);
     res.json({ user: u });
   })
 );
@@ -94,6 +94,17 @@ router.post(
     );
     await audit(req, 'user.password_changed', 'user', user.id);
     res.json({ token: signToken(updated) });
+  })
+);
+
+/** Personal preference: receive emails or in-app only. */
+router.patch(
+  '/preferences',
+  requireAuth,
+  ah(async (req, res) => {
+    const b = parse(z.object({ email_notifications: z.boolean() }), req.body);
+    await query('UPDATE users SET email_notifications = $2 WHERE id = $1', [req.user.id, b.email_notifications]);
+    res.json({ ok: true });
   })
 );
 

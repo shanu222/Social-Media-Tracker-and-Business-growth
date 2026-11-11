@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, PenLine, AtSign, ListChecks, Target, NotebookPen, FileBarChart, FolderLock, Settings as Cog, LogOut, Menu,
-  Boxes, Inbox,
+  Boxes, Inbox, ListTodo,
 } from 'lucide-react';
 import { useAuth, Loading, ROLE_LABEL } from './lib';
 import Notifications from './Notifications';
@@ -22,6 +22,7 @@ import Settings from './pages/Settings';
 import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
 import MyWork from './pages/MyWork';
+import TasksDashboard from './pages/TasksDashboard';
 
 type Item = { to: string; label: string; icon: typeof Boxes; end?: boolean };
 
@@ -30,7 +31,8 @@ function navFor(isAdmin: boolean): { group: string; items: Item[] }[] {
     ? [
         { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
         { to: '/products', label: 'Products', icon: Boxes },
-        { to: '/queue', label: 'Content queue', icon: Inbox },
+        { to: '/tasks', label: 'Tasks', icon: ListTodo },
+        { to: '/my-work', label: 'My work', icon: Inbox },
       ]
     : [
         { to: '/', label: 'My work', icon: Inbox, end: true },
@@ -118,7 +120,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={isAdmin ? <Dashboard /> : <MyWork />} />
           <Route path="/overview" element={<Dashboard />} />
-          <Route path="/queue" element={<MyWork />} />
+          <Route path="/my-work" element={<MyWork />} />
+          <Route path="/queue" element={<Navigate to="/tasks" replace />} />
+          <Route path="/tasks" element={isAdmin ? <TasksDashboard /> : <Navigate to="/" replace />} />
           <Route path="/products" element={<Products />} />
           <Route path="/products/:id" element={<ProductDetail />} />
           <Route path="/update" element={<DailyUpdate />} />

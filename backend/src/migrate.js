@@ -286,6 +286,72 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, read_at, created_at DESC);
 `;
 
+// v3 — full task management, comments, link library, email log, reminders, AI drafts
+const SCHEMA_V3 = `
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'post';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date DATE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS ai_generated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS ai_reason TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS seen_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check CHECK (status IN ('draft','todo','in_progress','done','cancelled'));
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_progress_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_progress_check CHECK (progress BETWEEN 0 AND 100);
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_kind_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_kind_check CHECK (kind IN ('post','general'));
+
+CREATE TABLE IF NOT EXISTS task_comments (
+  id          BIGSERIAL PRIMARY KEY,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  kind        TEXT NOT NULL DEFAULT 'comment' CHECK (kind IN ('comment','progress','clarification','system')),
+  body        TEXT,
+  progress    INTEGER,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS task_comments_idx ON task_comments(task_id, id);
+
+-- Permanent product library entries for external links (Google Drive, YouTube, etc.).
+-- Uploaded files live in "files"; the library view combines both.
+CREATE TABLE IF NOT EXISTS links (
+  id            SERIAL PRIMARY KEY,
+  product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  task_id       INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  content_type  TEXT NOT NULL DEFAULT 'link',
+  note          TEXT,
+  created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS links_product_idx ON links(product_id, created_at DESC);
+ALTER TABLE files ADD COLUMN IF NOT EXISTS content_type TEXT;
+
+CREATE TABLE IF NOT EXISTS email_log (
+  id          BIGSERIAL PRIMARY KEY,
+  to_email    TEXT NOT NULL,
+  subject     TEXT NOT NULL,
+  kind        TEXT,
+  status      TEXT NOT NULL,
+  error       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS task_reminders (
+  task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  kind      TEXT NOT NULL,
+  sent_on   DATE NOT NULL,
+  PRIMARY KEY (task_id, kind, sent_on)
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS job_runs (key TEXT NOT NULL, run_on DATE NOT NULL, PRIMARY KEY (key, run_on));
+`;
+
 // Default checklist (from the original Social Media Tracker sheet). No account
 // data, credentials or personal info is seeded — that lives only in the database.
 const DEFAULT_TASKS = [
@@ -337,6 +403,7 @@ export async function migrate() {
     await client.query('BEGIN');
     await client.query(SCHEMA);
     await client.query(SCHEMA_V2);
+    await client.query(SCHEMA_V3);
     const { rows: t } = await client.query('SELECT count(*)::int AS n FROM checklist_tasks');
     if (t[0].n === 0) {
       for (const [i, [title, scope, frequency]] of DEFAULT_TASKS.entries()) {

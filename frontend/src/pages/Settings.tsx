@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { DatabaseBackup, KeyRound, LogOut, Plus, ShieldCheck } from 'lucide-react';
+import { DatabaseBackup, KeyRound, LogOut, Mail, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
@@ -49,9 +49,72 @@ export default function Settings() {
           {can('admin') && <Integrations />}
         </div>
       </div>
+      <EmailPrefs />
+      {can('admin') && <EmailAndAi />}
       {can('admin') && <UsersPanel />}
       {can('admin') && <AuditPanel />}
     </>
+  );
+}
+
+function EmailPrefs() {
+  const toast = useToast();
+  const { data, setData } = useData<{ user: { email_notifications: boolean } }>('/auth/me');
+  if (!data) return null;
+  const on = data.user.email_notifications !== false;
+  async function toggle() {
+    try {
+      await api.patch('/auth/preferences', { email_notifications: !on });
+      setData({ user: { ...data!.user, email_notifications: !on } });
+      toast(!on ? 'Email notifications on' : 'Email notifications off — you will still see them in the app');
+    } catch (e) { toast((e as Error).message, true); }
+  }
+  return (
+    <div className="panel panel-pad" style={{ marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div><h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email notifications</h2><p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders.</p></div>
+        <label className="check"><input type="checkbox" checked={on} onChange={toggle} /> Email me</label>
+      </div>
+    </div>
+  );
+}
+
+function EmailAndAi() {
+  const toast = useToast();
+  const status = useData<{ email: string | null; appUrl: string; ai: boolean; aiModel: string }>('/system/status');
+  const log = useData<{ id: number; to_email: string; subject: string; kind: string | null; status: string; error: string | null; created_at: string }[]>('/system/emails');
+  const [busy, setBusy] = useState(false);
+  if (!status.data) return null;
+  const s = status.data;
+  async function test() {
+    setBusy(true);
+    try { await api.post('/system/test-email'); toast('Test email sent — check your inbox'); } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); log.reload(); }
+  }
+  return (
+    <div className="grid cols-2" style={{ marginBottom: 16 }}>
+      <div className="panel panel-pad stack" style={{ gap: 10 }}>
+        <h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email delivery</h2>
+        {s.email ? <p><span className="badge badge-good">Connected</span> Sending with {s.email === 'resend' ? 'Resend' : s.email === 'smtp' ? 'SMTP' : 'local outbox'}. Links in emails open <b>{s.appUrl || '(set APP_URL)'}</b>.</p>
+          : <p><span className="badge badge-warn">Not set up</span> Add <b>RESEND_API_KEY</b> and <b>EMAIL_FROM</b> on Railway to send emails. Until then, notifications appear in the app only.</p>}
+        <div><button className="btn btn-sm" onClick={test} disabled={busy || !s.email}>{busy ? 'Sending…' : 'Send a test email to me'}</button></div>
+        <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line-2)', borderRadius: 10 }}>
+          <table className="t" style={{ fontSize: 13 }}>
+            <thead><tr><th>Sent</th><th>To</th><th>Subject</th><th>Status</th></tr></thead>
+            <tbody>{(log.data || []).map((e) => (
+              <tr key={e.id}><td className="muted" style={{ whiteSpace: 'nowrap' }}>{when(e.created_at)}</td><td>{e.to_email}</td><td>{e.subject}</td>
+                <td title={e.error || ''}>{e.status === 'sent' ? <span className="badge badge-good">Sent</span> : e.status === 'failed' ? <span className="badge badge-bad">Failed</span> : <span className="badge">Skipped</span>}</td></tr>
+            ))}</tbody>
+          </table>
+          {log.data?.length === 0 && <p className="faint" style={{ padding: 12 }}>No emails yet.</p>}
+        </div>
+      </div>
+      <div className="panel panel-pad stack" style={{ gap: 10 }}>
+        <h2><Sparkles size={18} style={{ verticalAlign: -3 }} /> AI task assistant</h2>
+        {s.ai ? <p><span className="badge badge-good">Connected</span> Using <b>{s.aiModel}</b>. Open a product's Tasks tab and choose <b>Suggest with AI</b>.</p>
+          : <p><span className="badge badge-warn">Not set up</span> Add <b>ANTHROPIC_API_KEY</b> on Railway (from console.anthropic.com) to let AI draft tasks from each product's data.</p>}
+        <p className="muted" style={{ fontSize: 13.5 }}>AI only creates drafts. Nothing reaches your team until you review, edit and send each one. The AI sees product details, account numbers and task titles — never passwords, tokens or login emails.</p>
+      </div>
+    </div>
   );
 }
 
