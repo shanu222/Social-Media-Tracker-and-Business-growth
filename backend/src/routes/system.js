@@ -9,6 +9,7 @@ import { ah, parse } from '../util.js';
 import { z } from 'zod';
 import { emailProvider, sendEmail, appUrl } from '../mailer.js';
 import { aiEnabled } from '../services/ai.js';
+import { providerStatus, testProviders } from '../services/aiProviders.js';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.get('/status', ah(async (_req, res) => {
   const last = await one('SELECT created_at, size, trigger FROM backups ORDER BY created_at DESC LIMIT 1');
   res.json({
     storageEnabled, timezone: config.timezone, backupSchedule: config.backupCron, lastBackup: last,
-    email: emailProvider(), appUrl: appUrl(), ai: aiEnabled(), aiModel: process.env.AI_MODEL || 'claude-sonnet-5-5',
+    email: emailProvider(), appUrl: appUrl(), ai: aiEnabled(),
   });
 }));
 
@@ -48,6 +49,17 @@ router.post('/test-email', requireRole('admin'), ah(async (req, res) => {
     return res.status(502).json({ error: `Sending failed: ${last?.error || 'unknown error'}` });
   }
   res.json({ ok: true });
+}));
+
+/** AI key health for the admin. */
+router.get('/ai', requireRole('admin'), ah(async (_req, res) => {
+  res.json({ order: (process.env.AI_PROVIDER_ORDER || 'openai,gemini,openrouter,anthropic'), fallback: process.env.AI_FALLBACK_ENABLED !== 'false', providers: await providerStatus() });
+}));
+
+router.post('/ai/test', requireRole('admin'), ah(async (req, res) => {
+  const providers = await testProviders();
+  await audit(req, 'ai.tested', 'system', null, { working: providers.filter((p) => p.state === 'ok').map((p) => p.provider) });
+  res.json({ providers });
 }));
 
 export default router;

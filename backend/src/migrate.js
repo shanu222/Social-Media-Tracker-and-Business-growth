@@ -350,6 +350,15 @@ CREATE TABLE IF NOT EXISTS task_reminders (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS job_runs (key TEXT NOT NULL, run_on DATE NOT NULL, PRIMARY KEY (key, run_on));
+
+CREATE TABLE IF NOT EXISTS ai_status (
+  provider    TEXT PRIMARY KEY,
+  state       TEXT NOT NULL,
+  message     TEXT,
+  model       TEXT,
+  checked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_ok_at  TIMESTAMPTZ
+);
 `;
 
 // Default checklist (from the original Social Media Tracker sheet). No account

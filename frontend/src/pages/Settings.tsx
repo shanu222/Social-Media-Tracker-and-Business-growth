@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { DatabaseBackup, KeyRound, LogOut, Mail, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, KeyRound, LogOut, Mail, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
@@ -108,11 +108,57 @@ function EmailAndAi() {
           {log.data?.length === 0 && <p className="faint" style={{ padding: 12 }}>No emails yet.</p>}
         </div>
       </div>
-      <div className="panel panel-pad stack" style={{ gap: 10 }}>
-        <h2><Sparkles size={18} style={{ verticalAlign: -3 }} /> AI task assistant</h2>
-        {s.ai ? <p><span className="badge badge-good">Connected</span> Using <b>{s.aiModel}</b>. Open a product's Tasks tab and choose <b>Suggest with AI</b>.</p>
-          : <p><span className="badge badge-warn">Not set up</span> Add <b>ANTHROPIC_API_KEY</b> on Railway (from console.anthropic.com) to let AI draft tasks from each product's data.</p>}
-        <p className="muted" style={{ fontSize: 13.5 }}>AI only creates drafts. Nothing reaches your team until you review, edit and send each one. The AI sees product details, account numbers and task titles — never passwords, tokens or login emails.</p>
+      <AiProviders />
+    </div>
+  );
+}
+
+interface Prov { provider: string; label: string; keyVar: string; configured: boolean; position: number; models: string[]; state: string; stateText: string; message: string | null; checked_at: string | null; last_ok_at: string | null }
+
+/** Shows which AI keys work, which expired or ran out of quota, and lets the admin re-test. */
+function AiProviders() {
+  const toast = useToast();
+  const { data, setData } = useData<{ order: string; fallback: boolean; providers: Prov[] }>('/system/ai');
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  async function test() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ providers: Prov[] }>('/system/ai/test');
+      setData({ ...data!, providers: r.providers });
+      const ok = r.providers.filter((p) => p.state === 'ok').length;
+      toast(ok ? `${ok} AI provider${ok > 1 ? 's' : ''} working` : 'No AI provider is working — see the reasons below', !ok);
+    } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
+  }
+  const tone = (s: string) => (s === 'ok' ? 'badge-good' : s === 'invalid' || s === 'quota' ? 'badge-bad' : s === 'not_set' || s === 'unknown' ? '' : 'badge-warn');
+  const working = data.providers.filter((p) => p.state === 'ok').length;
+  const set = data.providers.filter((p) => p.configured).length;
+  return (
+    <div className="panel panel-pad stack" style={{ gap: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2><Sparkles size={18} style={{ verticalAlign: -3 }} /> AI providers</h2>
+        <button className="btn btn-sm" onClick={test} disabled={busy || !set}>{busy ? 'Testing…' : 'Test keys'}</button>
+      </div>
+      <p className="muted" style={{ fontSize: 13.5 }}>
+        {set ? <>Tried in this order{data.fallback ? '; if one fails or its key expires, the next is used automatically' : ' (fallback is off)'}. Suggestions only appear when you press <b>New task</b>.</>
+          : <>No AI key is set. Add <b>OPENAI_API_KEY</b>, <b>GEMINI_API_KEY</b> or <b>OPENROUTER_API_KEY</b> on Railway. Without AI, New task shows a full product brief instead.</>}
+      </p>
+      {set > 0 && working === 0 && data.providers.some((p) => p.configured && p.state !== 'unknown') && (
+        <div className="notice"><AlertTriangle /><span>No AI provider is working right now. Replace the keys marked red on Railway, then press <b>Test keys</b>.</span></div>
+      )}
+      <div className="table-wrap" style={{ border: '1px solid var(--line-2)', borderRadius: 10 }}>
+        <table className="t" style={{ fontSize: 13.5 }}>
+          <thead><tr><th>#</th><th>Provider</th><th>Status</th><th>Models</th><th>Last checked</th></tr></thead>
+          <tbody>{data.providers.map((p) => (
+            <tr key={p.provider} style={!p.configured ? { opacity: 0.6 } : undefined}>
+              <td className="faint">{p.configured ? p.position : ''}</td>
+              <td><b>{p.label}</b><div className="faint" style={{ fontSize: 12 }}>{p.keyVar}</div></td>
+              <td><span className={`badge ${tone(p.state)}`}>{p.stateText}</span>{p.message && <div className="faint" style={{ fontSize: 12, maxWidth: 260 }}>{p.message}</div>}</td>
+              <td className="muted" style={{ fontSize: 12.5, maxWidth: 240 }}>{p.models.join(' → ') || '—'}</td>
+              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{p.checked_at ? when(p.checked_at) : '—'}{p.last_ok_at && p.state !== 'ok' && <div className="faint" style={{ fontSize: 12 }}>last worked {when(p.last_ok_at)}</div>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
     </div>
   );

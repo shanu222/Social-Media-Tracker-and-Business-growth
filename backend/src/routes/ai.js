@@ -1,39 +1,54 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { tx } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { requireProductAccess } from '../access.js';
-import { suggestTasks } from '../services/ai.js';
+import { suggestTasks, productBrief, aiProviderLabels } from '../services/ai.js';
+import { providerStatus, STATE_TEXT } from '../services/aiProviders.js';
 import { ah, parse } from '../util.js';
 
-/** AI drafts tasks for one product. Drafts stay invisible to the team until the admin sends them. */
+/**
+ * AI suggestions for one product. Nothing is stored: the admin picks a suggestion,
+ * edits it in the task form and sends it. When no AI works, the reply explains why
+ * and includes a plain-text product brief to plan from.
+ */
 const router = Router({ mergeParams: true });
 router.use(requireRole('admin'), requireProductAccess());
 
 router.post('/suggest', ah(async (req, res) => {
   const b = parse(z.object({
     goal: z.string().max(1000).optional(),
-    count: z.number().int().min(1).max(10).default(5),
+    count: z.number().int().min(1).max(8).default(5),
     mode: z.enum(['plan', 'followup']).default('plan'),
+    refresh: z.boolean().default(false),
   }), req.body || {});
-  const result = await suggestTasks(req.productId, b);
-  const drafts = await tx(async (c) => {
-    const out = [];
-    for (const t of result.tasks) {
-      const { rows } = await c.query(
-        `INSERT INTO tasks (product_id, kind, title, description, instructions, caption, hashtags, platforms, priority,
-           start_date, due_date, status, ai_generated, ai_reason, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',TRUE,$12,$13) RETURNING id, title`,
-        [req.productId, t.kind, t.title, t.description, t.instructions, t.caption, t.hashtags, t.platforms, t.priority,
-          t.start_date, t.due_date, t.reason, req.user.id]
-      );
-      out.push(rows[0]);
+  try {
+    const r = await suggestTasks(req.productId, b);
+    if (!r.cached) await audit(req, 'ai.suggested', 'product', req.productId, { provider: r.provider, model: r.model, goal: b.goal || null }, req.productId);
+    res.json({ ok: true, ...r, providerLabel: aiProviderLabels()[r.provider] });
+  } catch (e) {
+    if (e.code !== 'AI_UNAVAILABLE') throw e;
+    const labels = aiProviderLabels();
+    const failures = [];
+    for (const a of e.attempts || []) {
+      const last = failures.find((f) => f.provider === a.provider);
+      if (last) { last.models.push(a.model); last.state = a.state; last.message = a.message; }
+      else failures.push({ provider: a.provider, label: labels[a.provider], models: [a.model], state: a.state, message: a.message });
     }
-    return out;
-  });
-  await audit(req, 'ai.suggested', 'product', req.productId, { drafts: drafts.length, goal: b.goal || null }, req.productId);
-  res.json({ summary: result.summary, gaps: result.gaps, drafts });
+    const brief = await productBrief(req.productId);
+    res.json({
+      ok: false,
+      reason: (e.attempts || []).length ? 'Every AI provider failed for this request.' : 'No AI key is set on the server.',
+      failures: failures.map((f) => ({ ...f, stateText: STATE_TEXT[f.state] || f.state })),
+      providers: await providerStatus(),
+      brief: brief.text,
+      gaps: brief.gaps,
+    });
+  }
+}));
+
+router.get('/brief', ah(async (req, res) => {
+  res.json(await productBrief(req.productId));
 }));
 
 export default router;

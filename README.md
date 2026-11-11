@@ -25,12 +25,18 @@ Task fields: type (social post / general), title, description, product, assignee
 instructions & notes, caption & hashtags & platforms (post tasks), links (Google Drive, YouTube, reels…), uploads,
 status and percentage complete.
 
-### AI task assistant
-**Suggest with AI** on a product reads its details, account numbers and trends, open and completed tasks, recent
-posts and library, then returns a short situation summary, the **gaps** it found and draft tasks with description,
-action plan, caption, platforms, priority, start and due dates and the reason for each. Drafts are invisible to the
-team until the Admin reviews, edits, assigns and presses **Assign & send** (or deletes them). "Follow-ups to completed
-work" mode suggests next steps after finished tasks. Passwords, tokens and login emails are never sent to the AI.
+### AI task suggestions
+AI never creates tasks on its own. When the Admin presses **New task** and picks a product, the AI reads that
+product's details, account numbers and trends, open and completed tasks, recent posts and library, and suggests
+tasks (with description, action plan, caption, platforms, priority, dates and the reason). The Admin presses
+**Use this** to open it in the task form, edits anything and sends it — or writes their own task.
+
+Providers are tried in `AI_PROVIDER_ORDER` (OpenAI → Gemini → OpenRouter free models → Anthropic). Each tries its
+main model then fallback model(s); temporary errors are retried; an invalid/expired key or exhausted quota skips to the
+next provider. Results are cached for `AI_CACHE_TTL` seconds. **Settings → AI providers** shows every key's status
+(Working, Key invalid or expired, Out of credit/quota, Rate limited, Model not available) with a **Test keys** button.
+If no provider works, New task explains why and shows a full **product brief** in text (accounts, growth, open and
+completed tasks, posts, library, detected gaps) that can be copied into any AI chat or used to plan manually.
 
 ### Content library
 Upload images, videos, reels and documents, or paste a link (Google Drive, Dropbox, YouTube, Instagram, Canva…).
@@ -176,7 +182,7 @@ Tables are created automatically on start-up, along with the default checklist a
 `RESEND_API_KEY`, `EMAIL_FROM="Growth Desk <tasks@sustainablesolution360.com>"` and `APP_URL` (your Vercel URL).
 Then **Settings → Send a test email to me**. (SMTP via `SMTP_HOST/PORT/USER/PASS` also works on paid Railway plans.)
 
-**AI:** create a key at console.anthropic.com and set `ANTHROPIC_API_KEY` on Railway (`AI_MODEL` optional).
+**AI:** set any of `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` (and the optional model/fallback variables in `backend/.env.example`). Then **Settings → AI providers → Test keys**.
 
 **Large uploads:** in Cloudflare → R2 → your bucket → **Settings → CORS Policy → Add**, paste:
 ```json
@@ -241,7 +247,7 @@ All routes are under `/api` and need `Authorization: Bearer <token>` except `POS
 | Files (R2) | `GET/POST /files`, `GET /files/:id/download`, `DELETE /files/:id` |
 | Products | `GET/POST /products`, `GET/PUT/DELETE /products/:id`, `POST /products/:id/image`, `GET /products/:id/activity` |
 | Tasks | `GET/POST /products/:id/tasks`, `GET/PUT/DELETE …/tasks/:taskId`, `POST …/send`, `PATCH …/status`, `PATCH …/progress`, `POST …/comments`, `POST …/links`, `GET /tasks/mine`, `GET /tasks/all` |
-| AI | `POST /products/:id/ai/suggest` |
+| AI | `POST /products/:id/ai/suggest`, `GET /products/:id/ai/brief`, `GET /system/ai`, `POST /system/ai/test` |
 | Library | `GET /products/:id/library?type=&q=`, `POST/DELETE /products/:id/library/links`, `POST /files/presign`, `POST /files/complete` |
 | Email | `GET /system/emails`, `POST /system/test-email`, `PATCH /auth/preferences` |
 | Published posts | `GET/POST /products/:id/posts`, `DELETE /products/:id/posts/:postId` |

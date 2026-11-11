@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, ROLE_LABEL, type Role } from '../../lib';
+import TaskComposer from './TaskComposer';
 import { Attachment, CopyBox, LINK_TYPES, PRIORITY, Progress, STATUS, uploadFile, type FileLite } from './shared';
 
 export interface Task {
@@ -62,19 +63,20 @@ export function TaskCard({ t, onOpen, showProduct }: { t: Task; onOpen: (t: Task
 }
 
 /* ---------------- Create / edit ---------------- */
-export function TaskForm({ productId, task, people, onClose, onSaved }: { productId: number; task?: Task; people: Person[]; onClose: () => void; onSaved: () => void }) {
+export function TaskForm({ productId, task, preset, people, onClose, onSaved }: { productId: number; task?: Task; preset?: Partial<Task>; people: Person[]; onClose: () => void; onSaved: () => void }) {
+  const src: Partial<Task> | undefined = task || preset;
   const toast = useToast();
   const [f, setF] = useState({
-    kind: task?.kind || 'post' as 'post' | 'general', title: task?.title || '', description: task?.description || '',
-    caption: task?.caption || '', hashtags: task?.hashtags || '', instructions: task?.instructions || '',
-    platforms: task?.platforms || ([] as string[]), priority: task?.priority || 'normal',
-    start_date: task?.start_date || todayStr(), due_date: task?.due_date || '',
-    assigned_to: task?.assigned_to ? String(task.assigned_to) : people.filter((p) => p.role !== 'admin').length === 1 ? String(people.find((p) => p.role !== 'admin')!.id) : '',
+    kind: src?.kind || 'post' as 'post' | 'general', title: src?.title || '', description: src?.description || '',
+    caption: src?.caption || '', hashtags: src?.hashtags || '', instructions: src?.instructions || '',
+    platforms: src?.platforms || ([] as string[]), priority: src?.priority || 'normal',
+    start_date: src?.start_date || todayStr(), due_date: src?.due_date || '',
+    assigned_to: src?.assigned_to ? String(src!.assigned_to) : people.filter((p) => p.role !== 'admin').length === 1 ? String(people.find((p) => p.role !== 'admin')!.id) : '',
   });
   const [links, setLinks] = useState<{ title: string; url: string }[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [more, setMore] = useState(Boolean(task && (task.instructions || task.priority !== 'normal')));
+  const [more, setMore] = useState(Boolean(src && (src.instructions || (src.priority && src.priority !== 'normal'))));
   const isDraft = task?.status === 'draft';
   const togglePlatform = (p: string) => setF((x) => ({ ...x, platforms: x.platforms.includes(p) ? x.platforms.filter((y) => y !== p) : [...x.platforms, p] }));
 
@@ -109,7 +111,7 @@ export function TaskForm({ productId, task, people, onClose, onSaved }: { produc
         <button className="btn btn-primary" form="task-form" disabled={!!busy}><Send size={15} /> {busy || (task && !isDraft ? 'Save changes' : 'Assign & send')}</button>
       </>}>
       <form id="task-form" className="form-grid" onSubmit={submit}>
-        {task?.ai_reason && <div className="notice info full"><Sparkles /><span><b>Why the AI suggested this:</b> {task.ai_reason}</span></div>}
+        {src?.ai_reason && <div className="notice info full"><Sparkles /><span><b>Suggested by AI:</b> {src.ai_reason} Edit anything before sending.</span></div>}
         <div className="field full">
           <div className="seg" role="group" aria-label="Task type">
             <button type="button" className={f.kind === 'post' ? 'on' : ''} onClick={() => setF({ ...f, kind: 'post' })}>Social media post</button>
@@ -336,45 +338,6 @@ function CompleteTask({ t, onClose, onDone }: { t: Task; onClose: () => void; on
   );
 }
 
-/* ---------------- AI suggestions ---------------- */
-function AiSuggest({ productId, onClose, onDone }: { productId: number; onClose: () => void; onDone: () => void }) {
-  const toast = useToast();
-  const [goal, setGoal] = useState('');
-  const [count, setCount] = useState(5);
-  const [mode, setMode] = useState<'plan' | 'followup'>('plan');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ summary: string | null; gaps: string[]; drafts: { id: number; title: string }[] } | null>(null);
-
-  async function run(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const r = await api.post<typeof result>(`/products/${productId}/ai/suggest`, { goal: goal || undefined, count, mode });
-      setResult(r);
-      onDone();
-    } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
-  }
-
-  return (
-    <Modal title="Suggest tasks with AI" onClose={onClose} footer={result ? <button className="btn btn-primary" onClick={onClose}>Review drafts</button> : <><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="ai-form" disabled={busy}><Sparkles size={15} /> {busy ? 'Thinking… (up to a minute)' : 'Suggest tasks'}</button></>}>
-      {!result ? (
-        <form id="ai-form" className="stack" style={{ gap: 12 }} onSubmit={run}>
-          <p className="muted">The AI reads this product's details, accounts, follower trends, open and completed tasks and recent posts, then drafts tasks. Nothing is sent to anyone until you review and approve each draft.</p>
-          <div className="seg"><button type="button" className={mode === 'plan' ? 'on' : ''} onClick={() => setMode('plan')}>Plan next two weeks</button><button type="button" className={mode === 'followup' ? 'on' : ''} onClick={() => setMode('followup')}>Follow-ups to completed work</button></div>
-          <div className="field"><label htmlFor="aig">Goal (optional)</label><input id="aig" className="input" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="e.g. Get 500 new YouTube subscribers before the NET exam" /></div>
-          <div className="field"><label htmlFor="aic">How many tasks</label><select id="aic" className="input" style={{ width: 120 }} value={count} onChange={(e) => setCount(Number(e.target.value))}>{[3, 5, 7, 10].map((n) => <option key={n}>{n}</option>)}</select></div>
-        </form>
-      ) : (
-        <div className="stack" style={{ gap: 12 }}>
-          {result.summary && <p>{result.summary}</p>}
-          {result.gaps.length > 0 && <div><b>Gaps found</b><ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{result.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul></div>}
-          <div className="notice info"><Sparkles /><span>{result.drafts.length} draft tasks were added. Open each one to edit, assign and send — or delete it.</span></div>
-        </div>
-      )}
-    </Modal>
-  );
-}
-
 /* ---------------- Product Tasks tab ---------------- */
 export default function ProductTasks({ productId, members }: { productId: number; members: Person[] }) {
   const { can } = useAuth();
@@ -384,7 +347,6 @@ export default function ProductTasks({ productId, members }: { productId: number
   const { data, error, loading, reload } = useData<Task[]>(`/products/${productId}/tasks`);
   const people = useData<(Person & { active: boolean })[]>(can('admin') ? '/users' : null);
   const [creating, setCreating] = useState(false);
-  const [ai, setAi] = useState(false);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox error={error || ''} retry={reload} />;
 
@@ -404,10 +366,7 @@ export default function ProductTasks({ productId, members }: { productId: number
           <button className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>All</button>
         </div>
         {can('admin') && (
-          <div className="row">
-            <button className="btn" onClick={() => setAi(true)}><Sparkles size={16} /> Suggest with AI</button>
-            <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus /> New task</button>
-          </div>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus /> New task <Sparkles size={14} style={{ opacity: 0.8 }} /></button>
         )}
       </div>
       {can('admin') && drafts.length > 0 && filter === 'open' && (
@@ -418,12 +377,11 @@ export default function ProductTasks({ productId, members }: { productId: number
       {list.length === 0 ? (
         <div className="panel empty">
           <h3>{filter === 'open' ? 'No open tasks' : filter === 'drafts' ? 'No drafts' : 'Nothing here yet'}</h3>
-          <p>{can('admin') ? 'Create a task or let AI suggest some based on this product\'s data.' : 'New tasks from the admin appear here, and you get an email.'}</p>
+          <p>{can('admin') ? 'Press New task — AI suggests tasks from this product\'s data, or write your own.' : 'New tasks from the admin appear here, and you get an email.'}</p>
         </div>
       ) : list.map((t) => <TaskCard key={t.id} t={t} onOpen={(x) => setOpen(x.id)} />)}
       {openId && <TaskDetail productId={productId} taskId={openId} people={assignable} onClose={() => setOpen(null)} onChanged={reload} />}
-      {creating && <TaskForm productId={productId} people={assignable} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />}
-      {ai && <AiSuggest productId={productId} onClose={() => { setAi(false); setFilter('drafts'); }} onDone={reload} />}
+      {creating && <TaskComposer productId={productId} people={assignable} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />}
     </>
   );
 }

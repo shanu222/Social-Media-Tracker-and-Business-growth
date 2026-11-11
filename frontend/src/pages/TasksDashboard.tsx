@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Plus, Sparkles } from 'lucide-react';
+import TaskComposer from './product/TaskComposer';
 import { useData, Loading, ErrorBox } from '../lib';
 import type { ProductRow } from './Products';
 import { TaskCard, type Task } from './product/Tasks';
@@ -21,6 +22,8 @@ export default function TasksDashboard() {
   const qs = new URLSearchParams({ ...(status !== 'open' && { status }), ...(product && { product_id: product }), ...(person && { assigned_to: person }) });
   const { data, error, loading, reload } = useData<Data>(`/tasks/all?${qs}`);
   const products = useData<ProductRow[]>('/products');
+  const people = useData<{ id: number; name: string; role: string; active: boolean }[]>('/users');
+  const [composing, setComposing] = useState(false);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox error={error || ''} retry={reload} />;
   const s = data.stats;
@@ -35,6 +38,7 @@ export default function TasksDashboard() {
     <>
       <div className="page-head">
         <div><h1>Tasks</h1><p>Every task across all products. Select a tile to filter; open a task to see its full history.</p></div>
+        <button className="btn btn-primary" onClick={() => setComposing(true)}><Plus /> New task <Sparkles size={14} style={{ opacity: 0.8 }} /></button>
       </div>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
         {tile('todo', 'Not started', s.pending)}
@@ -86,6 +90,7 @@ export default function TasksDashboard() {
       )}
       {tasks.length === 0 ? <div className="panel empty"><h3>No tasks match</h3><p>Create tasks from a product's Tasks tab, or let AI suggest some.</p></div>
         : tasks.map((t) => <TaskCard key={t.id} t={t} showProduct onOpen={(x) => nav(`/products/${x.product_id}?tab=tasks&task=${x.id}`)} />)}
+      {composing && <TaskComposer people={(people.data || []).filter((u) => u.active && u.role !== 'viewer')} onClose={() => setComposing(false)} onSaved={() => { setComposing(false); reload(); }} />}
     </>
   );
 }
