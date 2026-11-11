@@ -11,6 +11,7 @@ import { notify } from '../notify.js';
 import { storageEnabled, putObject, deleteObject, signedViewUrl } from '../storage.js';
 import { ah, parse, today, addDays } from '../util.js';
 import { PRODUCT_TYPES, guessType, setupProductKpis } from '../services/kpiTemplates.js';
+import { setupProductChecklist } from '../services/checklistTemplates.js';
 
 const router = Router();
 
@@ -60,6 +61,7 @@ router.post('/', requireRole('admin'), ah(async (req, res) => {
     );
     // Every new product starts with the KPI set that fits its type
     await setupProductKpis(c, rows[0].id, rows[0].category);
+    await setupProductChecklist(c, rows[0].id, { type: rows[0].category });
     for (const uid of b.member_ids || []) {
       await c.query('INSERT INTO product_members (product_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [rows[0].id, uid]);
     }

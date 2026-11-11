@@ -755,3 +755,7 @@ a.att:hover { filter: brightness(0.97); }
 .ann-foot { align-items: flex-start; }
 .em-warn { color: #ffd2a8; }
 .bubble:not(.me) .em-warn { color: var(--loss); }
+.cl-group { font-size: 11.5px; font-weight: 700; color: var(--signal); padding: 12px 0 2px; letter-spacing: .02em; }
+.cl-group-row td { font-size: 11.5px; font-weight: 700; color: var(--signal); padding-top: 14px !important; padding-bottom: 4px !important; border-bottom: 0 !important; background: transparent !important; }
+.cl-today { display: none; }
+@media (max-width: 700px) { .cl-today { display: block; } .cl-week { display: none; } }

@@ -461,6 +461,11 @@ CREATE TABLE IF NOT EXISTS announcement_reminders (
 // v5 — KPIs per product: product type, product-scoped metrics, automatic social metrics
 const SCHEMA_V5 = `
 ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+-- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
+ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
+ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS checklist_tpl_uq ON checklist_tasks(product_id, tpl_key) WHERE product_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS checklist_product_idx ON checklist_tasks(product_id);
 -- Email delivery tracking per person and per message/announcement
 ALTER TABLE email_log ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ref TEXT;

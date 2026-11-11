@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { setupProductChecklist } from '../services/checklistTemplates.js';
 import { z } from 'zod';
 import { many, one, query, tx } from '../db.js';
 import { requireRole } from '../auth.js';
@@ -150,6 +151,8 @@ router.post(
     if (dup) return res.status(409).json({ error: `@${body.username} on ${body.platform} is already registered.` });
     let acc = await tx((c) => insertAccount(c, body, req.user.id));
     await audit(req, 'account.created', 'account', acc.id, { brand: acc.brand, username: acc.username }, acc.product_id);
+    // Add this platform's routine (e.g. YouTube comment replies) to the product's checklist
+    if (acc.product_id) await tx((c) => setupProductChecklist(c, acc.product_id)).catch((e) => console.error('[checklist]', e.message));
     // No starting numbers typed in? Fetch them now from the platform and use them as the baseline.
     let synced = false;
     if (acc.sync_enabled && canSync(acc.platform) && !acc.baseline_followers && !acc.baseline_posts) {

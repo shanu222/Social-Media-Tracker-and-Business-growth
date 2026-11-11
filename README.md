@@ -332,3 +332,26 @@ reach and engagement rate. Nobody types these in.
 
 On first start after this update, existing products get a type and their KPI set. The NET360-only metrics (students,
 lectures, MCQs) move to NET360 with their history. Company-wide metrics that never had data are retired.
+
+## Checklists per product
+
+Each product has its own routine (daily, weekly and monthly), built from two parts:
+
+- **Its type:** for example, education gets student questions, a question of the day and lecture uploads.
+  E-commerce gets orders and stock, product questions, abandoned carts and ad review.
+- **Its platforms:** Instagram, Facebook, YouTube, Telegram, Discord, LinkedIn, TikTok or WhatsApp tasks appear
+  only when the product has an account there.
+
+When an account is added on a new platform, that platform's tasks are added automatically. The **Company-wide**
+checklist keeps the shared business tasks: security checks, backups, database, renewals, payments and the
+monthly report.
+
+The admin can:
+- add tasks back from **Suggested routine**
+- add custom tasks with **Edit tasks**
+- remove tasks (past ticks are kept)
+
+On phones the checklist shows a simple *Today* list instead of the week grid.
+
+On first start after this update, the old shared social tasks are retired (their history is kept), and every
+product gets its routine.

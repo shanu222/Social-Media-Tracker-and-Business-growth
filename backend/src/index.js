@@ -29,6 +29,7 @@ import aiRoutes from './routes/ai.js';
 import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
 import { upgradeToProductKpis } from './services/kpiTemplates.js';
+import { upgradeToProductChecklists } from './services/checklistTemplates.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -183,6 +184,7 @@ async function bootstrapAdmin() {
 async function start() {
   await migrate();
   await upgradeToProductKpis(tx).then((r) => r && console.log('[setup] KPIs moved to per-product sets')).catch((e) => console.error('[setup] KPI upgrade failed', e.message));
+  await upgradeToProductChecklists(tx).then((r) => r && console.log('[setup] Checklists moved to per-product routines')).catch((e) => console.error('[setup] checklist upgrade failed', e.message));
   await bootstrapAdmin();
   await bootstrapManager();
   await bootstrapNotifyEmails();
