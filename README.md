@@ -1,0 +1,134 @@
+# Growth Desk — Social Media Tracker & Business Growth
+
+A private web app for running all your social accounts and business numbers from one place.
+It replaces the paper/Word "Social Media Tracker" with a live, shared, secure workspace.
+
+| What you do | Where |
+|---|---|
+| Log each account's followers, following, posts, likes, comments, reach and DMs every day | **Daily update → Social accounts** |
+| Log revenue, leads, clients, ad spend, website visitors, signups, lectures, MCQs, YouTube, Play Store testers… | **Daily update → Business numbers** |
+| Tick off the 30–40 minute daily routine, plus weekly and monthly checks | **Checklist** |
+| See total growth, a per-account daily "growth ribbon", trends and plain-language suggestions | **Overview** |
+| Keep the account register (baseline numbers, 2FA status, encrypted login email & notes) | **Accounts** |
+| Set monthly targets and see on/off track automatically | **Targets & KPIs** |
+| Write best/weakest post per account, overall summary and next month's action plan | **Monthly review** |
+| Generate weekly / monthly / custom reports, download PDF, export CSV | **Reports** |
+| Store insights screenshots, content backups and invoices in Cloudflare R2 | **Files** |
+| Manage team members & roles, change password, see activity log, run backups | **Settings** |
+
+```
+frontend/  React + Vite + TypeScript  → deploy on Vercel
+backend/   Node.js + Express + PostgreSQL → deploy on Railway
+           Cloudflare R2 (S3 API) for files, PDF copies and encrypted nightly backups
+```
+
+---
+
+## Security — why the code alone gives nobody your data
+
+* **No data in the repository.** Every account, number, file and user lives only in your Railway
+  PostgreSQL database and your private R2 bucket. The repo contains code and empty defaults only.
+* **All secrets are environment variables** (`DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, R2 keys).
+  `.env` files are git-ignored. Someone who clones the repo has nothing to connect to.
+* **No public sign-up.** The first admin is created from Railway variables; after that only an admin can add people.
+* **Encryption at rest:** login emails, private notes and every cloud backup are encrypted with AES-256-GCM
+  using `ENCRYPTION_KEY`. Even someone with database access cannot read them without the key.
+* **Passwords** are hashed with bcrypt (cost 12); 10+ characters with letters and numbers required.
+* **Brute-force protection:** 20 sign-in attempts per 15 minutes per IP, and an account locks for 15 minutes after 5 wrong passwords.
+* **Sessions** are signed JWTs re-checked against the database on every request — disabling a user,
+  changing a password or "Sign out on all devices" takes effect immediately.
+* **Roles:** Admin (everything), Manager (log data, reviews, reports, files), Viewer (read-only; cannot see encrypted fields).
+* **Private R2 bucket:** files get random object keys and are only reachable through 5-minute signed links issued after sign-in.
+* **Hardening:** Helmet security headers, strict CORS allow-list, rate limiting, input validation (zod) on every route,
+  CSV formula-injection protection, strict CSP and `noindex` on the frontend, full audit log of sign-ins, edits and downloads.
+
+> Keep `ENCRYPTION_KEY` in your password manager. If it is lost, encrypted fields and backups cannot be recovered.
+
+---
+
+## Deploy
+
+### 1. Backend on Railway
+
+1. Railway → **New Project → Deploy from GitHub repo** → choose this repo.
+2. In the service **Settings → Root Directory**, set `backend`.
+3. Add a database: **New → Database → PostgreSQL** in the same project.
+4. Generate secrets on your computer:
+   ```bash
+   cd backend && npm install && npm run gen:secrets
+   ```
+5. In the backend service **Variables**, add:
+
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference to the Railway database) |
+   | `NODE_ENV` | `production` |
+   | `JWT_SECRET` | from `gen:secrets` |
+   | `ENCRYPTION_KEY` | from `gen:secrets` (64 hex characters) |
+   | `CORS_ORIGINS` | your Vercel URL, e.g. `https://growth-desk.vercel.app` (comma-separate several) |
+   | `ADMIN_EMAIL` | your email |
+   | `ADMIN_PASSWORD` | a strong first password (remove this variable after first sign-in) |
+   | `ADMIN_NAME` | your name |
+   | `APP_TIMEZONE` | `Asia/Karachi` |
+
+6. **Settings → Networking → Generate Domain.** Copy the URL (e.g. `https://xxx.up.railway.app`).
+   Open `https://xxx.up.railway.app/health` — it should show `{"ok":true}`.
+
+Tables are created automatically on start-up, along with the default checklist and business metrics.
+
+### 2. Cloudflare R2 (files, report PDFs, nightly backups)
+
+1. Cloudflare dashboard → **R2 → Create bucket** (e.g. `growth-desk`). Leave public access **off**.
+2. **R2 → Manage API tokens → Create API token** with *Object Read & Write* on that bucket only.
+3. Add to the Railway backend variables:
+   `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
+4. Redeploy. The Files page unlocks, every generated report keeps a PDF copy in R2,
+   and an encrypted backup runs every night at 02:00 (change with `BACKUP_CRON`).
+
+### 3. Frontend on Vercel
+
+1. Vercel → **Add New → Project** → import this repo.
+2. **Root Directory:** `frontend` (framework preset Vite is detected).
+3. **Environment Variables:** `VITE_API_URL` = your Railway URL (no trailing slash).
+4. Deploy, then make sure that Vercel URL is listed in Railway's `CORS_ORIGINS`.
+5. Sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, change the password in **Settings**, then delete
+   `ADMIN_PASSWORD` from Railway.
+
+### 4. First-day setup
+
+1. **Accounts → Add account** (or **Import CSV**) for each page with today's posts / followers / following as the baseline.
+   CSV headers: `Brand,Username,Platform,Posts,Followers,Following,YouTube,Login email,2FA,URL,Notes`.
+2. **Settings → Team → Add person** for your marketing manager (role *Manager*).
+3. **Targets & KPIs** → set this month's targets; **Edit metrics** to add your own (e.g. Fiverr orders, Upwork proposals).
+4. From then on: **Daily update** + **Checklist** every day, **Monthly review** + **Reports** at month end.
+
+---
+
+## Run locally
+
+```bash
+# Postgres running locally, database "smt"
+cd backend
+cp .env.example .env          # fill JWT_SECRET / ENCRYPTION_KEY via: npm run gen:secrets
+npm install && npm run dev    # http://localhost:4000
+
+cd ../frontend
+npm install && npm run dev    # http://localhost:5173 (proxies /api to the backend)
+```
+
+## API overview
+
+All routes are under `/api` and need `Authorization: Bearer <token>` except `POST /api/auth/login`.
+
+| Area | Routes |
+|---|---|
+| Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/change-password`, `POST /auth/logout-all` |
+| Accounts | `GET/POST /accounts`, `GET/PUT/DELETE /accounts/:id`, `POST /accounts/import` |
+| Daily numbers | `GET/PUT /snapshots/day?date=`, `GET /snapshots/export.csv?start=&end=` |
+| Checklist | `GET /checklist?date=`, `POST /checklist/toggle`, `POST/PUT/DELETE /checklist/tasks` |
+| Business metrics | `GET/POST /metrics`, `GET/PUT /metrics/day`, `GET /metrics/month`, `PUT /metrics/targets` |
+| Review | `GET /reviews?month=`, `PUT /reviews/account`, `PUT /reviews/summary`, `POST/PUT/DELETE /reviews/actions` |
+| Dashboard | `GET /dashboard?days=30` |
+| Reports | `GET/POST /reports`, `GET /reports/:id`, `GET /reports/:id/pdf`, `DELETE /reports/:id` |
+| Files (R2) | `GET/POST /files`, `GET /files/:id/download`, `DELETE /files/:id` |
+| Admin | `GET/POST/PATCH /users`, `GET /users/audit`, `GET /system/status`, `GET/POST /system/backups` |

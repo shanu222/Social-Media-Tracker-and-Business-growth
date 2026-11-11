@@ -1,0 +1,275 @@
+import { pool } from './db.js';
+
+// Idempotent schema. Runs automatically on every server start.
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id              SERIAL PRIMARY KEY,
+  email           TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL,
+  password_hash   TEXT NOT NULL,
+  role            TEXT NOT NULL DEFAULT 'manager' CHECK (role IN ('admin','manager','viewer')),
+  active          BOOLEAN NOT NULL DEFAULT TRUE,
+  token_version   INTEGER NOT NULL DEFAULT 0,
+  failed_logins   INTEGER NOT NULL DEFAULT 0,
+  locked_until    TIMESTAMPTZ,
+  last_login_at   TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+  id                  SERIAL PRIMARY KEY,
+  brand               TEXT NOT NULL,
+  username            TEXT NOT NULL,
+  platform            TEXT NOT NULL DEFAULT 'instagram',
+  profile_url         TEXT,
+  content_theme       TEXT,
+  youtube_status      TEXT DEFAULT 'Not noted',
+  two_factor_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
+  login_email_enc     TEXT,            -- AES-256-GCM encrypted
+  private_notes_enc   TEXT,            -- AES-256-GCM encrypted
+  baseline_date       DATE NOT NULL DEFAULT CURRENT_DATE,
+  baseline_posts      INTEGER NOT NULL DEFAULT 0,
+  baseline_followers  INTEGER NOT NULL DEFAULT 0,
+  baseline_following  INTEGER NOT NULL DEFAULT 0,
+  color               TEXT,
+  archived            BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (platform, username)
+);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+  id              SERIAL PRIMARY KEY,
+  account_id      INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  date            DATE NOT NULL,
+  followers       INTEGER,
+  following       INTEGER,
+  posts           INTEGER,
+  likes           INTEGER,
+  comments        INTEGER,
+  shares          INTEGER,
+  reach           INTEGER,
+  impressions     INTEGER,
+  profile_visits  INTEGER,
+  dms_received    INTEGER,
+  dms_answered    INTEGER,
+  notes           TEXT,
+  updated_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (account_id, date)
+);
+CREATE INDEX IF NOT EXISTS snapshots_date_idx ON snapshots(date);
+
+CREATE TABLE IF NOT EXISTS checklist_tasks (
+  id          SERIAL PRIMARY KEY,
+  title       TEXT NOT NULL,
+  scope       TEXT,
+  frequency   TEXT NOT NULL CHECK (frequency IN ('daily','weekly','monthly')),
+  position    INTEGER NOT NULL DEFAULT 0,
+  active      BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS checklist_completions (
+  task_id     INTEGER NOT NULL REFERENCES checklist_tasks(id) ON DELETE CASCADE,
+  period_key  TEXT NOT NULL,          -- YYYY-MM-DD | YYYY-Www | YYYY-MM
+  done_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  done_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (task_id, period_key)
+);
+
+CREATE TABLE IF NOT EXISTS metrics (
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  category     TEXT NOT NULL DEFAULT 'Business',
+  unit         TEXT,
+  aggregation  TEXT NOT NULL DEFAULT 'sum' CHECK (aggregation IN ('sum','last','avg')),
+  higher_is_better BOOLEAN NOT NULL DEFAULT TRUE,
+  position     INTEGER NOT NULL DEFAULT 0,
+  active       BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS metric_entries (
+  id          SERIAL PRIMARY KEY,
+  metric_id   INTEGER NOT NULL REFERENCES metrics(id) ON DELETE CASCADE,
+  date        DATE NOT NULL,
+  value       NUMERIC NOT NULL,
+  note        TEXT,
+  updated_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (metric_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS metric_targets (
+  metric_id  INTEGER NOT NULL REFERENCES metrics(id) ON DELETE CASCADE,
+  month      TEXT NOT NULL,           -- YYYY-MM
+  target     NUMERIC,
+  comment    TEXT,
+  PRIMARY KEY (metric_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS account_reviews (
+  account_id   INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  month        TEXT NOT NULL,
+  best_post    TEXT,
+  why_worked   TEXT,
+  weakest      TEXT,
+  fix_next     TEXT,
+  rating       INTEGER CHECK (rating BETWEEN 1 AND 5),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, month)
+);
+
+CREATE TABLE IF NOT EXISTS monthly_summaries (
+  month        TEXT PRIMARY KEY,
+  what_worked  TEXT,
+  what_didnt   TEXT,
+  what_change  TEXT,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS action_items (
+  id          SERIAL PRIMARY KEY,
+  title       TEXT NOT NULL,
+  account_id  INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  owner       TEXT,
+  deadline    DATE,
+  done        BOOLEAN NOT NULL DEFAULT FALSE,
+  month       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS files (
+  id           SERIAL PRIMARY KEY,
+  storage_key  TEXT NOT NULL UNIQUE,
+  name         TEXT NOT NULL,
+  mime         TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  category     TEXT NOT NULL DEFAULT 'other',
+  account_id   INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  note         TEXT,
+  uploaded_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id           SERIAL PRIMARY KEY,
+  title        TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('weekly','monthly','custom')),
+  start_date   DATE NOT NULL,
+  end_date     DATE NOT NULL,
+  data         JSONB NOT NULL,
+  storage_key  TEXT,
+  created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action      TEXT NOT NULL,
+  entity      TEXT,
+  entity_id   TEXT,
+  detail      JSONB,
+  ip          TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_created_idx ON audit_log(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backups (
+  id           SERIAL PRIMARY KEY,
+  storage_key  TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  trigger      TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`;
+
+// Default checklist (from the original Social Media Tracker sheet). No account
+// data, credentials or personal info is seeded — that lives only in the database.
+const DEFAULT_TASKS = [
+  ['Open each account and check notifications', 'All accounts', 'daily'],
+  ['Reply to DMs / messages', 'All accounts', 'daily'],
+  ['Reply to comments and mentions', 'All accounts', 'daily'],
+  ['Post / story published as per content calendar', 'All accounts', 'daily'],
+  ["Note today's followers and following count", 'All accounts', 'daily'],
+  ['Check for login alerts or security emails', 'All accounts + linked emails', 'daily'],
+  ['YouTube: comments, views, upload status', 'YouTube channels', 'daily'],
+  ['Website is up and loading; check contact messages', 'Websites', 'daily'],
+  ['Lecture video uploaded / scheduled', 'Website + YouTube', 'daily'],
+  ['Play Store testing: tester count and feedback', 'Android apps', 'daily'],
+  ['Check trending hashtags / competitor posts (10 min)', 'Growth accounts', 'daily'],
+  ["Plan tomorrow's post and prepare content", 'All accounts', 'daily'],
+  ['Export / screenshot insights (reach, top posts, audience) for each account', 'All accounts', 'weekly'],
+  ["Review next week's content calendar; check posts are scheduled", 'All accounts', 'weekly'],
+  ['Remove spam followers, reply to unanswered comments', 'All accounts', 'weekly'],
+  ['Update bio, link and profile picture where needed; confirm links work', 'All accounts', 'monthly'],
+  ['Confirm 2FA is on and recovery email/phone is correct for every account', 'All accounts', 'monthly'],
+  ['Back up content (videos, graphics, captions) and question banks', 'Storage', 'monthly'],
+  ['Check database usage and backup status', 'Infrastructure', 'monthly'],
+  ['Check domain, hosting and subscription renewal dates', 'Infrastructure', 'monthly'],
+  ['Check Google Play Console messages and closed-testing status', 'Android apps', 'monthly'],
+  ['Review ads / payments (if any) against results', 'Finance', 'monthly'],
+  ['Compare this month with last month and write the report', 'Reports', 'monthly'],
+];
+
+// [name, category, unit, aggregation, higher_is_better]
+const DEFAULT_METRICS = [
+  ['Revenue', 'Business', 'PKR', 'sum', true],
+  ['New leads / inquiries', 'Business', null, 'sum', true],
+  ['New clients / orders', 'Business', null, 'sum', true],
+  ['Ad spend', 'Business', 'PKR', 'sum', false],
+  ['Website visitors', 'Websites', null, 'sum', true],
+  ['New signups / students', 'Websites', null, 'sum', true],
+  ['Lecture videos uploaded', 'Content', null, 'sum', true],
+  ['MCQs added to the bank', 'Content', null, 'sum', true],
+  ['YouTube subscribers gained', 'YouTube', null, 'sum', true],
+  ['YouTube views', 'YouTube', null, 'sum', true],
+  ['YouTube watch time', 'YouTube', 'hours', 'sum', true],
+  ['Play Store testers opted in', 'Apps', null, 'last', true],
+  ['Security issues / locked accounts', 'Security', null, 'sum', false],
+];
+
+export async function migrate() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(SCHEMA);
+    const { rows: t } = await client.query('SELECT count(*)::int AS n FROM checklist_tasks');
+    if (t[0].n === 0) {
+      for (const [i, [title, scope, frequency]] of DEFAULT_TASKS.entries()) {
+        await client.query(
+          'INSERT INTO checklist_tasks (title, scope, frequency, position) VALUES ($1,$2,$3,$4)',
+          [title, scope, frequency, i]
+        );
+      }
+    }
+    const { rows: m } = await client.query('SELECT count(*)::int AS n FROM metrics');
+    if (m[0].n === 0) {
+      for (const [i, [name, category, unit, aggregation, hib]] of DEFAULT_METRICS.entries()) {
+        await client.query(
+          'INSERT INTO metrics (name, category, unit, aggregation, higher_is_better, position) VALUES ($1,$2,$3,$4,$5,$6)',
+          [name, category, unit, aggregation, hib, i]
+        );
+      }
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// Allow `npm run migrate`
+if (import.meta.url === `file://${process.argv[1]}`) {
+  migrate()
+    .then(() => {
+      console.log('Migration complete');
+      return pool.end();
+    })
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+}
