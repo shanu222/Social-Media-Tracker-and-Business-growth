@@ -58,7 +58,7 @@ router.post(
     await audit({ user, ip: req.ip }, 'login.success', 'user', user.id);
     res.json({
       token: signToken(user),
-      user: { id: user.id, email: user.email, name: user.name, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password },
+      user: { id: user.id, email: user.email, name: user.name, title: user.title, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password },
     });
   })
 );
@@ -67,7 +67,7 @@ router.get(
   '/me',
   requireAuth,
   ah(async (req, res) => {
-    const u = await one('SELECT id, email, name, role, must_change_password, email_notifications, notify_email FROM users WHERE id = $1', [req.user.id]);
+    const u = await one('SELECT id, email, name, title, role, must_change_password, email_notifications, notify_email, can_message_team FROM users WHERE id = $1', [req.user.id]);
     res.json({ user: { ...u, must_change_password: u.role === 'admin' && u.must_change_password } });
   })
 );

@@ -28,6 +28,9 @@ import libraryRoutes from './routes/library.js';
 import aiRoutes from './routes/ai.js';
 import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
+import teamRoutes, { sendEventReminders } from './routes/team.js';
+import timeRoutes, { capStaleTimers } from './routes/time.js';
+import performanceRoutes from './routes/performance.js';
 import notificationRoutes from './routes/notifications.js';
 import { syncAll } from './services/sync.js';
 import { importEnvKeys } from './services/aiProviders.js';
@@ -98,6 +101,9 @@ app.use('/api/products/:productId(\\d+)/ai', auth, aiRoutes);
 app.use('/api/products', auth, productRoutes);
 app.use('/api/tasks', auth, globalTasks);
 app.use('/api/notifications', auth, notificationRoutes);
+app.use('/api/team', auth, teamRoutes);
+app.use('/api/time', auth, timeRoutes);
+app.use('/api/performance', auth, performanceRoutes);
 app.use('/api/users', auth, userRoutes);
 app.use('/api/accounts', auth, accountRoutes);
 app.use('/api/snapshots', auth, snapshotRoutes);
@@ -185,6 +191,11 @@ async function start() {
   // Deadline reminders every morning
   cron.schedule(process.env.REMINDER_CRON || '0 9 * * *', () =>
     sendDueReminders().then((n) => console.log('[reminders]', n)).catch((e) => console.error('[reminders] failed', e.message)), tz);
+  // Meeting, deadline and reminder notifications; caps forgotten timers
+  cron.schedule(process.env.EVENT_REMINDER_CRON || '*/5 * * * *', () => {
+    sendEventReminders().then((n) => n && console.log('[events] reminders sent', n)).catch((e) => console.error('[events] failed', e.message));
+    capStaleTimers().catch(() => {});
+  }, tz);
   if (cron.validate(config.backupCron)) {
     cron.schedule(
       config.backupCron,

@@ -4,7 +4,7 @@ import { api, setToken, setUnauthorizedHandler, hasToken } from './api';
 
 /* ---------------- Types ---------------- */
 export type Role = 'admin' | 'manager' | 'viewer';
-export interface User { id: number; email: string; name: string; role: Role; must_change_password?: boolean }
+export interface User { id: number; email: string; name: string; title?: string | null; role: Role; must_change_password?: boolean; can_message_team?: boolean }
 export const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', manager: 'Social media manager', viewer: 'Viewer' };
 
 export const PLATFORMS: { id: string; label: string; color: string }[] = [

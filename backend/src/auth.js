@@ -19,7 +19,7 @@ export async function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: 'Sign in to continue.' });
     const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'], issuer: 'growth-desk' });
     const user = await one(
-      'SELECT id, email, name, role, active, token_version, must_change_password FROM users WHERE id = $1',
+      'SELECT id, email, name, title, role, active, token_version, must_change_password, can_message_team FROM users WHERE id = $1',
       [payload.sub]
     );
     if (!user || !user.active || user.token_version !== payload.v) {

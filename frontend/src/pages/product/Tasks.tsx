@@ -6,6 +6,7 @@ import {
 import { api } from '../../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, ROLE_LABEL, type Role } from '../../lib';
 import TaskComposer from './TaskComposer';
+import { TimeSection } from './TimeSection';
 import { Attachment, CopyBox, LINK_TYPES, PRIORITY, Progress, STATUS, uploadFile, type FileLite } from './shared';
 
 export interface Task {
@@ -238,6 +239,8 @@ export function TaskDetail({ productId, taskId, people, onClose, onChanged }: { 
             )}
           </div>
         )}
+
+        {t.status !== 'draft' && (mine || can('admin')) && <TimeSection taskId={t.id} open={isOpen(t)} canTrack={mine} onChange={refresh} />}
 
         {t.description && <div><div className="lbl muted" style={{ fontSize: 12.5, fontWeight: 500 }}>Description</div><p style={{ whiteSpace: 'pre-wrap' }}>{t.description}</p></div>}
         {t.instructions && <div><div className="lbl muted" style={{ fontSize: 12.5, fontWeight: 500 }}>Instructions</div><p style={{ whiteSpace: 'pre-wrap' }}>{t.instructions}</p></div>}

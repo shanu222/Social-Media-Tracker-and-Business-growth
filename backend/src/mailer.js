@@ -124,3 +124,23 @@ export function taskEmail({ heading, intro, task, productName, link, extra }) {
   const text = `${heading}\n\n${intro}\n\nTask: ${task.title}\nProduct: ${productName}\nPriority: ${task.priority}\nDue: ${due}\n${desc ? `\n${desc}\n` : ''}${extra ? `\n${extra}\n` : ''}\nOpen: ${url}`;
   return { html, text };
 }
+
+/** Branded email for messages, announcements and meeting reminders. `rows` = [label, plain text][]. */
+export function noticeEmail({ heading, intro, rows = [], body, link, button = 'Open in Growth Desk', footer }) {
+  const url = `${appUrl()}${link}`;
+  const html = `<!doctype html><html><body style="margin:0;background:#eef1f4;font-family:Segoe UI,Arial,sans-serif;color:#1b2433">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px"><tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:14px;overflow:hidden">
+    <tr><td style="background:#0a1a3d;padding:20px 24px;color:#fff;font-size:18px;font-weight:700"><img src="${esc(appUrl())}/rtl-logo-192.png" width="36" height="36" alt="RTL" style="vertical-align:middle;margin-right:10px">${esc(heading)}</td></tr>
+    <tr><td style="height:4px;background:linear-gradient(90deg,#1a5fe0,#12b5e8,#16b97a);background-color:#12b5e8"></td></tr>
+    <tr><td style="padding:22px 24px">
+      <p style="margin:0 0 14px;font-size:15px;line-height:1.5">${esc(intro)}</p>
+      ${rows.length ? `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;border-collapse:collapse">${rows.map(([k, v]) => `<tr><td style="padding:5px 0;color:#5e6a7c;width:90px;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-weight:600">${esc(v)}</td></tr>`).join('')}</table>` : ''}
+      ${body ? `<div style="margin-top:12px;padding:12px 14px;background:#f6f8fa;border-radius:9px;font-size:14px;line-height:1.55;white-space:pre-wrap">${esc(body).slice(0, 2000)}</div>` : ''}
+      <p style="margin:22px 0 4px"><a href="${esc(url)}" style="display:inline-block;background:#1a5fe0;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600">${esc(button)}</a></p>
+    </td></tr>
+    <tr><td style="padding:14px 24px;background:#f6f8fa;color:#8a95a5;font-size:12px">${esc(BRAND.app)} · ${esc(BRAND.legal)}${footer ? `<br>${esc(footer)}` : ''}</td></tr>
+  </table></td></tr></table></body></html>`;
+  const text = `${heading}\n\n${intro}\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}\n${body ? `\n${body}\n` : ''}\nOpen: ${url}`;
+  return { html, text };
+}

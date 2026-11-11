@@ -382,6 +382,79 @@ CREATE TABLE IF NOT EXISTS ai_status (
 );
 `;
 
+
+// v4 — custom job titles, task time tracking, team messaging, announcements & meetings
+const SCHEMA_V4 = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_message_team BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Time spent on tasks: a running timer has ended_at NULL; manual entries have both set.
+CREATE TABLE IF NOT EXISTS task_time (
+  id          BIGSERIAL PRIMARY KEY,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at    TIMESTAMPTZ,
+  minutes     INTEGER,
+  source      TEXT NOT NULL DEFAULT 'timer' CHECK (source IN ('timer','manual')),
+  note        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS task_time_user_idx ON task_time(user_id, started_at);
+CREATE INDEX IF NOT EXISTS task_time_task_idx ON task_time(task_id);
+CREATE UNIQUE INDEX IF NOT EXISTS task_time_one_running ON task_time(user_id) WHERE ended_at IS NULL;
+
+-- Direct messages between two people
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id            BIGSERIAL PRIMARY KEY,
+  sender_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body          TEXT NOT NULL,
+  important     BOOLEAN NOT NULL DEFAULT FALSE,
+  read_at       TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dm_pair_idx ON direct_messages(LEAST(sender_id, recipient_id), GREATEST(sender_id, recipient_id), id);
+CREATE INDEX IF NOT EXISTS dm_unread_idx ON direct_messages(recipient_id) WHERE read_at IS NULL;
+
+-- Throttle for message emails: at most one email per conversation every 30 minutes unless important
+CREATE TABLE IF NOT EXISTS dm_email_state (
+  user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  peer_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emailed_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, peer_id)
+);
+
+-- Announcements, meetings, reminders and deadlines sent by the admin
+CREATE TABLE IF NOT EXISTS announcements (
+  id          SERIAL PRIMARY KEY,
+  kind        TEXT NOT NULL DEFAULT 'announcement' CHECK (kind IN ('announcement','meeting','reminder','deadline')),
+  title       TEXT NOT NULL,
+  body        TEXT,
+  event_at    TIMESTAMPTZ,
+  location    TEXT,
+  important   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cancelled   BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS announcement_recipients (
+  announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at         TIMESTAMPTZ,
+  acknowledged_at TIMESTAMPTZ,
+  PRIMARY KEY (announcement_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS ann_recip_user_idx ON announcement_recipients(user_id);
+CREATE TABLE IF NOT EXISTS announcement_reminders (
+  announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+  kind            TEXT NOT NULL,
+  sent_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (announcement_id, kind)
+);
+`;
+
 // Default checklist (from the original Social Media Tracker sheet). No account
 // data, credentials or personal info is seeded — that lives only in the database.
 const DEFAULT_TASKS = [
@@ -434,6 +507,7 @@ export async function migrate() {
     await client.query(SCHEMA);
     await client.query(SCHEMA_V2);
     await client.query(SCHEMA_V3);
+    await client.query(SCHEMA_V4);
     const { rows: t } = await client.query('SELECT count(*)::int AS n FROM checklist_tasks');
     if (t[0].n === 0) {
       for (const [i, [title, scope, frequency]] of DEFAULT_TASKS.entries()) {

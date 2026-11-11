@@ -4,7 +4,7 @@ import { BRAND } from '../brand';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
 
-interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
+interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; title?: string | null; can_message_team?: boolean; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
 interface Audit { id: number; action: string; entity: string | null; entity_id: string | null; ip: string | null; created_at: string; user_name: string | null }
 interface Status { storageEnabled: boolean; timezone: string; backupSchedule: string; lastBackup: { created_at: string; size: number } | null }
 
@@ -33,7 +33,7 @@ export default function Settings() {
 
   return (
     <>
-      <div className="page-head"><div><h1>Settings</h1><p>Signed in as {user?.name} ({user?.email}).</p></div></div>
+      <div className="page-head"><div><h1>Settings</h1><p>Signed in as {user?.name}{user?.title ? `, ${user.title}` : ''} ({user?.email}).</p></div></div>
       <div className="panel org-strip" style={{ marginBottom: 16 }}>
         <img src={BRAND.logo} alt="RTL" />
         <div style={{ flex: 1, minWidth: 220 }}>
@@ -310,7 +310,7 @@ function BackupBox() {
   );
 }
 
-interface PersonForm { id?: number; name: string; email: string; notify_email: string; role: Role; password: string; active?: boolean }
+interface PersonForm { id?: number; name: string; title: string; can_message_team: boolean; email: string; notify_email: string; role: Role; password: string; active?: boolean }
 
 function UsersPanel() {
   const toast = useToast();
@@ -326,14 +326,14 @@ function UsersPanel() {
     try {
       if (editing.id) {
         const cur = data!.find((u) => u.id === editing.id)!;
-        const body: Record<string, unknown> = { name: editing.name, notify_email: editing.notify_email.trim() };
+        const body: Record<string, unknown> = { name: editing.name, notify_email: editing.notify_email.trim(), title: editing.title.trim(), can_message_team: editing.can_message_team };
         if (editing.email.trim().toLowerCase() !== cur.email) body.email = editing.email.trim();
         if (editing.id !== user?.id && editing.role !== cur.role) body.role = editing.role;
         if (editing.password) body.password = editing.password;
         await api.patch(`/users/${editing.id}`, body);
         toast(`${editing.name} updated`);
       } else {
-        await api.post('/users', { name: editing.name, email: editing.email.trim(), notify_email: editing.notify_email.trim(), role: editing.role, password: editing.password });
+        await api.post('/users', { name: editing.name, title: editing.title.trim(), can_message_team: editing.can_message_team, email: editing.email.trim(), notify_email: editing.notify_email.trim(), role: editing.role, password: editing.password });
         toast(`${editing.name} added. Share the login email and temporary password with them privately.`);
       }
       setEditing(null);
@@ -354,21 +354,22 @@ function UsersPanel() {
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head">
         <div><h2>Team</h2><p>Each person signs in with their login email. Notifications go to their notification email (or the login email if none is set).</p></div>
-        <button className="btn btn-primary" onClick={() => setEditing({ name: '', email: '', notify_email: '', role: 'manager', password: tempPassword() })}><Plus /> Add person</button>
+        <button className="btn btn-primary" onClick={() => setEditing({ name: '', title: '', can_message_team: false, email: '', notify_email: '', role: 'manager', password: tempPassword() })}><Plus /> Add person</button>
       </div>
       <div className="table-wrap" style={{ padding: 8 }}>
         <table className="t">
-          <thead><tr><th>Name</th><th>Login email</th><th>Notifications to</th><th>Role</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Job title</th><th>Login email</th><th>Notifications to</th><th>Role</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
           <tbody>{data?.map((u) => (
             <tr key={u.id}>
               <td><b>{u.name}</b>{u.id === user?.id && <span className="faint"> (you)</span>}</td>
+              <td>{u.title || <span className="faint">—</span>}</td>
               <td className="muted">{u.email}</td>
               <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge">Emails off</span></div>}</td>
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
               <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
+                <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => toggleActive(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
               </td>
             </tr>
@@ -380,13 +381,17 @@ function UsersPanel() {
           footer={<><button className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" form="person-form" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add person' : 'Save changes'}</button></>}>
           <form id="person-form" className="form-grid" onSubmit={save}>
             <div className="field"><label htmlFor="pnm">Name</label><input id="pnm" className="input" required value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Maryam Batool" /></div>
-            <div className="field"><label htmlFor="prl">Role</label>
+            <div className="field"><label htmlFor="pti">Job title</label><input id="pti" className="input" maxLength={100} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="e.g. Marketing Manager" /><span className="hint">Shown on their profile and messages.</span></div>
+            <div className="field"><label htmlFor="prl">Access level</label>
               <select id="prl" className="input" value={editing.role} disabled={editing.id === user?.id} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })}>
                 <option value="manager">{ROLE_LABEL.manager}</option><option value="viewer">{ROLE_LABEL.viewer}</option><option value="admin">{ROLE_LABEL.admin}</option>
               </select>
             </div>
             <div className="field"><label htmlFor="pem">Login email</label><input id="pem" type="email" className="input" required value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} /><span className="hint">Used to sign in.</span></div>
             <div className="field"><label htmlFor="pne">Notification email</label><input id="pne" type="email" className="input" value={editing.notify_email} onChange={(e) => setEditing({ ...editing, notify_email: e.target.value })} placeholder="Same as login email" /><span className="hint">Tasks, reminders and replies are sent here.</span></div>
+            {editing.role !== 'admin' && (
+              <label className="check full"><input type="checkbox" checked={editing.can_message_team} onChange={(e) => setEditing({ ...editing, can_message_team: e.target.checked })} /> Can message other team members (admins can always be messaged)</label>
+            )}
             <div className="field full">
               <label htmlFor="ppw">{isNew ? 'Temporary password' : 'Reset password (optional)'}</label>
               <div className="row" style={{ flexWrap: 'nowrap' }}>

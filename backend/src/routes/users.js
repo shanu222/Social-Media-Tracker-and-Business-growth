@@ -17,7 +17,7 @@ router.get(
   ah(async (_req, res) => {
     res.json(
       await many(
-        'SELECT id, email, notify_email, email_notifications, name, role, active, last_login_at, created_at, must_change_password FROM users ORDER BY created_at'
+        'SELECT id, email, notify_email, email_notifications, name, title, can_message_team, role, active, last_login_at, created_at, must_change_password FROM users ORDER BY created_at'
       )
     );
   })
@@ -27,14 +27,14 @@ router.post(
   '/',
   ah(async (req, res) => {
     const body = parse(
-      z.object({ email: z.string().email().max(200), notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(), name: z.string().min(1).max(100), role, password: passwordSchema }),
+      z.object({ email: z.string().email().max(200), notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(), name: z.string().min(1).max(100), title: z.string().trim().max(100).optional(), can_message_team: z.boolean().optional(), role, password: passwordSchema }),
       req.body
     );
     const exists = await one('SELECT 1 FROM users WHERE lower(email) = lower($1)', [body.email]);
     if (exists) return res.status(409).json({ error: 'A user with this email already exists.' });
     const user = await one(
-      'INSERT INTO users (email, notify_email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,$5,$4 = \'admin\') RETURNING id, email, notify_email, name, role, active, created_at',
-      [body.email.toLowerCase(), body.notify_email ? body.notify_email.toLowerCase() : null, body.name, body.role, await bcrypt.hash(body.password, 12)]
+      'INSERT INTO users (email, notify_email, name, role, password_hash, must_change_password, title, can_message_team) VALUES ($1,$2,$3,$4,$5,$4 = \'admin\',$6,$7) RETURNING id, email, notify_email, name, title, can_message_team, role, active, created_at',
+      [body.email.toLowerCase(), body.notify_email ? body.notify_email.toLowerCase() : null, body.name, body.role, await bcrypt.hash(body.password, 12), body.title || null, body.can_message_team ?? false]
     );
     await audit(req, 'user.created', 'user', user.id, { email: user.email, role: user.role });
     res.status(201).json(user);
@@ -51,6 +51,8 @@ router.patch(
         email: z.string().email().max(200).optional(),
         notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(),
         role: role.optional(),
+        title: z.string().trim().max(100).optional(),
+        can_message_team: z.boolean().optional(),
         active: z.boolean().optional(),
         password: passwordSchema.optional(),
       }),
@@ -71,11 +73,14 @@ router.patch(
       `UPDATE users SET name = $2, role = $3, active = $4, password_hash = $5,
          token_version = token_version + $6, failed_logins = 0, locked_until = NULL, email = $7,
          must_change_password = CASE WHEN $8 THEN TRUE ELSE must_change_password END,
-         notify_email = CASE WHEN $9::boolean THEN nullif($10, '') ELSE notify_email END
-       WHERE id = $1 RETURNING id, email, notify_email, name, role, active, last_login_at, created_at, must_change_password`,
+         notify_email = CASE WHEN $9::boolean THEN nullif($10, '') ELSE notify_email END,
+         title = CASE WHEN $11::boolean THEN nullif($12, '') ELSE title END,
+         can_message_team = coalesce($13, can_message_team)
+       WHERE id = $1 RETURNING id, email, notify_email, name, title, can_message_team, role, active, last_login_at, created_at, must_change_password`,
       [id, body.name ?? current.name, body.role ?? current.role, body.active ?? current.active, hash, bump,
         (body.email ?? current.email).toLowerCase(), Boolean(body.password) && id !== req.user.id && (body.role ?? current.role) === 'admin',
-        body.notify_email !== undefined, body.notify_email ? body.notify_email.toLowerCase() : null]
+        body.notify_email !== undefined, body.notify_email ? body.notify_email.toLowerCase() : null,
+        body.title !== undefined, body.title ?? null, body.can_message_team ?? null]
     );
     await audit(req, 'user.updated', 'user', id, { ...body, password: body.password ? '(reset)' : undefined });
     res.json(user);

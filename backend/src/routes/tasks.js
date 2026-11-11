@@ -9,6 +9,7 @@ import { emailUser, taskEmail } from '../mailer.js';
 import { ah, parse, zDate, today, addDays } from '../util.js';
 import { PLATFORMS } from './accounts.js';
 import { contentTypeFor } from './library.js';
+import { stopTimer } from './time.js';
 
 /*
  * Task management: the Admin creates (or approves AI-drafted) tasks for any authorised person.
@@ -248,6 +249,11 @@ productTasks.patch('/:taskId(\\d+)/status', requireRole('manager'), ah(async (re
      WHERE id=$1 RETURNING *`,
     [prev.id, b.status, req.user.id, b.completion_note || null]
   );
+  if (['done', 'cancelled'].includes(b.status)) {
+    // Close any timers still running on this task
+    const running = await many('SELECT user_id FROM task_time WHERE task_id = $1 AND ended_at IS NULL', [t.id]);
+    for (const r of running) await stopTimer(r.user_id, t.id);
+  }
   const label = { todo: 'reopened the task', in_progress: 'started working', done: 'completed the task', cancelled: 'cancelled the task' }[b.status];
   await systemNote(t.id, req.user.id, `${req.user.name} ${label}.${b.completion_note ? ` Note: ${b.completion_note}` : ''}`);
   if (b.status === 'done') {

@@ -3,8 +3,12 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, PenLine, AtSign, ListChecks, Target, NotebookPen, FileBarChart, FolderLock, Settings as Cog, LogOut, Menu,
   Boxes, Inbox, ListTodo,
-  Mail, Phone, Globe,
+  Mail, Phone, Globe, MessagesSquare, Gauge,
 } from 'lucide-react';
+import { api } from './api';
+import { TimerChip, TimerProvider } from './timer';
+import Messages from './pages/Messages';
+import Performance from './pages/Performance';
 import { BRAND } from './brand';
 import { useAuth, Loading, ROLE_LABEL } from './lib';
 import Notifications from './Notifications';
@@ -26,19 +30,23 @@ import ProductDetail from './pages/ProductDetail';
 import MyWork from './pages/MyWork';
 import TasksDashboard from './pages/TasksDashboard';
 
-type Item = { to: string; label: string; icon: typeof Boxes; end?: boolean };
+type Item = { to: string; label: string; icon: typeof Boxes; end?: boolean; badge?: number };
 
-function navFor(isAdmin: boolean): { group: string; items: Item[] }[] {
+function navFor(isAdmin: boolean, unread: number): { group: string; items: Item[] }[] {
   const work: Item[] = isAdmin
     ? [
         { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
         { to: '/products', label: 'Products', icon: Boxes },
         { to: '/tasks', label: 'Tasks', icon: ListTodo },
         { to: '/my-work', label: 'My work', icon: Inbox },
+        { to: '/messages', label: 'Messages', icon: MessagesSquare, badge: unread },
+        { to: '/performance', label: 'Team performance', icon: Gauge },
       ]
     : [
         { to: '/', label: 'My work', icon: Inbox, end: true },
         { to: '/products', label: 'My products', icon: Boxes },
+        { to: '/messages', label: 'Messages', icon: MessagesSquare, badge: unread },
+        { to: '/performance', label: 'My performance', icon: Gauge },
         { to: '/overview', label: 'Growth overview', icon: LayoutDashboard },
       ];
   return [
@@ -77,6 +85,14 @@ export default function App() {
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    const load = () => api.get<{ dm: number; announcements: number }>('/team/unread').then((u) => setUnread(u.dm + u.announcements)).catch(() => {});
+    load();
+    const t = setInterval(() => document.visibilityState === 'visible' && load(), 20000);
+    return () => clearInterval(t);
+  }, [user, loc.pathname]);
 
   if (!ready) return <Loading />;
   if (!user) return <Login />;
@@ -84,11 +100,13 @@ export default function App() {
   const isAdmin = can('admin');
 
   return (
+    <TimerProvider>
     <div className="shell">
       <div className="mobile-bar">
         <button onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={22} /></button>
         <img src={BRAND.logo} alt="" width={30} height={30} />
         <strong style={{ fontFamily: 'var(--font-display)', flex: 1 }}>Growth Desk for RTL</strong>
+        <TimerChip />
         <Notifications dark />
       </div>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
@@ -104,12 +122,12 @@ export default function App() {
           <span className="desktop-only"><Notifications dark /></span>
         </div>
         <nav className="nav">
-          {navFor(isAdmin).map((g) => (
+          {navFor(isAdmin, unread).map((g) => (
             <div key={g.group} className="nav">
               <div className="nav-group">{g.group}</div>
-              {g.items.map(({ to, label, icon: Icon, end }) => (
+              {g.items.map(({ to, label, icon: Icon, end, badge }) => (
                 <NavLink key={to} to={to} end={end}>
-                  <Icon /> {label}
+                  <Icon /> {label}{badge ? <span className="count" aria-label={`${badge} unread`}>{badge}</span> : null}
                 </NavLink>
               ))}
             </div>
@@ -117,10 +135,11 @@ export default function App() {
           <div className="nav-group">Account</div>
           <NavLink to="/settings"><Cog /> Settings</NavLink>
         </nav>
+        <TimerChip />
         <OrgCard />
         <div className="sidebar-foot" style={{ marginTop: 0 }}>
           <div className="who">{user.name}</div>
-          <div style={{ color: '#8e9bb0', fontSize: 12 }}>{ROLE_LABEL[user.role]}</div>
+          <div style={{ color: '#8e9bb0', fontSize: 12 }}>{user.title || ROLE_LABEL[user.role]}</div>
           <button onClick={logout}><LogOut size={14} /> Sign out</button>
         </div>
       </aside>
@@ -143,9 +162,12 @@ export default function App() {
           <Route path="/reports/:id" element={<ReportView />} />
           <Route path="/files" element={<Files />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/performance" element={<Performance />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
+    </TimerProvider>
   );
 }

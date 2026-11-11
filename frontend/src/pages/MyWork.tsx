@@ -1,3 +1,4 @@
+import { UpcomingStrip } from './Messages';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
@@ -46,6 +47,7 @@ export default function MyWork() {
           <button className={view === 'product' ? 'on' : ''} onClick={() => setView('product')}>By product</button>
         </div>
       </div>
+      <UpcomingStrip />
 
       <div className="prod-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', marginBottom: 22 }}>
         {(products.data || []).map((p) => (

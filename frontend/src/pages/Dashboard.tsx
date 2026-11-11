@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useData, Loading, ErrorBox, fmt, signed, prettyDate, prettyMonth, compact, useAuth, platformOf, accountColor } from '../lib';
 import { CHART } from '../brand';
+import { UpcomingStrip } from './Messages';
 
 interface Acc {
   id: number; brand: string; username: string; platform: string; color: string | null; start_followers: number | null; end_followers: number | null;
@@ -144,6 +145,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <UpcomingStrip />
       {can('admin') && noAccountProducts.length > 0 && (
         <div className="notice" style={{ marginBottom: 16, alignItems: 'center' }}>
           <AlertTriangle />
