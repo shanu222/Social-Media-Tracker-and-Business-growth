@@ -45,7 +45,7 @@ export default function AccountDetail() {
           <p>@{a.username} on {a.platform} · tracking since {prettyDate(a.baseline_date, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
         <div className="page-actions">
-          {a.two_factor_enabled ? <span className="badge badge-good"><ShieldCheck size={13} /> 2FA on</span> : <span className="badge badge-bad"><ShieldAlert size={13} /> 2FA off</span>}
+          {can('admin') && (a.two_factor_enabled ? <span className="badge badge-good"><ShieldCheck size={13} /> 2FA on</span> : <span className="badge badge-bad"><ShieldAlert size={13} /> 2FA off</span>)}
           {can('admin') && <button className="btn" onClick={() => setEditing(true)}><Pencil /> Edit</button>}
         </div>
       </div>

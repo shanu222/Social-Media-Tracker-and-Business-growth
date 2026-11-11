@@ -47,7 +47,7 @@ export default function Accounts() {
                 <tr>
                   <th>Account</th><th>Platform</th><th>Product</th>
                   <th className="r">Followers</th><th className="r">7-day change</th><th className="r">Posts</th><th className="r">Following</th>
-                  <th>Security</th><th>YouTube</th><th />
+                  {can('admin') && <th>Security</th>}<th>YouTube</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -63,7 +63,7 @@ export default function Accounts() {
                       <td className={`r num ${tone(wk)}`}>{signed(wk)}</td>
                       <td className="r num">{fmt(a.last_posts ?? a.baseline_posts)}</td>
                       <td className="r num">{fmt(a.last_following ?? a.baseline_following)}</td>
-                      <td>{a.two_factor_enabled ? <span className="badge badge-good"><ShieldCheck size={13} /> 2FA on</span> : <span className="badge badge-bad"><ShieldAlert size={13} /> 2FA off</span>}</td>
+                      {can('admin') && <td>{a.two_factor_enabled ? <span className="badge badge-good"><ShieldCheck size={13} /> 2FA on</span> : <span className="badge badge-bad"><ShieldAlert size={13} /> 2FA off</span>}</td>}
                       <td className="muted">{a.youtube_status || '—'}</td>
                       <td className="r" style={{ whiteSpace: 'nowrap' }}>
                         {a.profile_url && <a className="btn btn-ghost btn-icon" href={a.profile_url} target="_blank" rel="noreferrer noopener" aria-label={`Open ${a.brand}`}><ExternalLink size={16} /></a>}

@@ -5,6 +5,7 @@ import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { growthSummary, checklistCompletion, buildInsights, businessMetrics, monthlyKpis } from '../services/analytics.js';
 import { renderReportPdf } from '../services/reportPdf.js';
+import { stripSecurity } from '../adminOnly.js';
 import { storageEnabled, putObject, deleteObject } from '../storage.js';
 import { ah, parse, zDate, zMonth, today, addDays, weekStart, monthRange, isoWeekKey } from '../util.js';
 
@@ -105,7 +106,7 @@ router.post('/', requireRole('manager'), ah(async (req, res) => {
   // Keep a copy of the PDF in Cloudflare R2 when storage is configured
   if (storageEnabled) {
     try {
-      const pdf = await renderReportPdf({ ...report, created_by_name: req.user.name });
+      const pdf = await renderReportPdf({ ...report, data: stripSecurity(report.data), created_by_name: req.user.name });
       const key = `reports/${report.id}-${b.kind}-${start}.pdf`;
       await putObject(key, pdf, 'application/pdf');
       report = await one('UPDATE reports SET storage_key = $2 WHERE id = $1 RETURNING *', [report.id, key]);
@@ -126,7 +127,7 @@ router.get('/:id', ah(async (req, res) => {
 router.get('/:id/pdf', ah(async (req, res) => {
   const r = await one('SELECT r.*, u.name AS created_by_name FROM reports r LEFT JOIN users u ON u.id = r.created_by WHERE r.id = $1', [Number(req.params.id)]);
   if (!r) return res.status(404).json({ error: 'Report not found.' });
-  const pdf = await renderReportPdf(r);
+  const pdf = await renderReportPdf(req.user.role === 'admin' ? r : { ...r, data: stripSecurity(r.data) });
   await audit(req, 'report.downloaded', 'report', r.id);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="report-${r.id}-${r.start_date}.pdf"`);

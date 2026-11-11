@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { one } from './db.js';
+import { hideSecurityFromNonAdmins } from './adminOnly.js';
 
 export function signToken(user) {
   return jwt.sign({ sub: user.id, v: user.token_version, role: user.role }, config.jwtSecret, {
@@ -26,7 +27,7 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Your session has ended. Sign in again.' });
     }
     req.user = user;
-    next();
+    return hideSecurityFromNonAdmins(req, res, next);
   } catch {
     return res.status(401).json({ error: 'Your session has ended. Sign in again.' });
   }

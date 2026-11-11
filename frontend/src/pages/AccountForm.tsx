@@ -212,7 +212,7 @@ export default function AccountForm({ account, onClose, onSaved, onDeleted, defa
             {can('admin') && <div className="field"><label htmlFor="lemail">Login email</label><input id="lemail" className="input" value={f.login_email} onChange={(e) => set('login_email', e.target.value)} autoComplete="off" /><span className="hint">Encrypted, admin only. Never store passwords here.</span></div>}
             <div className="field"><label htmlFor="color">Chart colour</label><input id="color" type="color" className="input" style={{ padding: 3 }} value={f.color || platformOf(f.platform).color} onChange={(e) => set('color', e.target.value)} /></div>
             {can('admin') && <div className="field full"><label htmlFor="notes">Private notes</label><textarea id="notes" className="input" value={f.private_notes} onChange={(e) => set('private_notes', e.target.value)} /></div>}
-            <label className="check full"><input type="checkbox" checked={f.two_factor_enabled} onChange={(e) => set('two_factor_enabled', e.target.checked)} /> Two-factor authentication is on</label>
+            {can('admin') && <label className="check full"><input type="checkbox" checked={f.two_factor_enabled} onChange={(e) => set('two_factor_enabled', e.target.checked)} /> Two-factor authentication is on</label>}
             {account && <label className="check full"><input type="checkbox" checked={f.archived} onChange={(e) => set('archived', e.target.checked)} /> Archive (hide but keep history)</label>}
           </>
         )}

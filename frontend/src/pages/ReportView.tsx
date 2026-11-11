@@ -8,7 +8,7 @@ import { useData, useToast, Loading, ErrorBox, fmt, signed, tone, prettyDate, ac
 interface Report {
   id: number; title: string; kind: string; start_date: string; end_date: string; created_at: string; created_by_name?: string | null;
   data: {
-    totals: { end_followers: number; net_change: number; growth_pct: number | null; posts_added: number; reach: number; impressions: number; engagement_rate: number | null; response_rate: number | null; two_factor_coverage: number | null };
+    totals: { end_followers: number; net_change: number; growth_pct: number | null; posts_added: number; reach: number; impressions: number; engagement_rate: number | null; response_rate: number | null; two_factor_coverage?: number | null };
     accounts: { id: number; brand: string; username: string; color: string | null; start_followers: number | null; end_followers: number | null; net_change: number | null; growth_pct: number | null; posts_added: number | null; reach: number; engagement_rate: number | null; rating: number | null }[];
     checklist: { pct: number | null };
     kpis: { id: number; name: string; unit: string | null; value: number | null; target: number | null; previous: number | null; status: string | null }[];
@@ -54,7 +54,7 @@ export default function ReportView() {
             <div className="kpi" style={{ padding: 0 }}><div className="k">Posts published</div><div className="v">{fmt(t.posts_added)}</div></div>
             <div className="kpi" style={{ padding: 0 }}><div className="k">Engagement rate</div><div className="v">{t.engagement_rate !== null ? `${t.engagement_rate}%` : '—'}</div><div className="d muted">Reach {fmt(t.reach)}</div></div>
           </div>
-          <p className="muted">DMs answered {t.response_rate !== null ? `${t.response_rate}%` : '—'} · Checklist completed {d.checklist?.pct !== null ? `${d.checklist.pct}%` : '—'} · 2FA on {t.two_factor_coverage ?? '—'}% of accounts</p>
+          <p className="muted">DMs answered {t.response_rate !== null ? `${t.response_rate}%` : '—'} · Checklist completed {d.checklist?.pct !== null ? `${d.checklist.pct}%` : '—'}{t.two_factor_coverage !== undefined && ` · 2FA on ${t.two_factor_coverage ?? '—'}% of accounts`}</p>
 
           <section>
             <h2 style={{ marginBottom: 10 }}>Followers gained by account</h2>
