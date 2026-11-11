@@ -35,7 +35,7 @@ router.get('/people', ah(async (req, res) => {
   const me = await one('SELECT can_message_team FROM users WHERE id = $1', [req.user.id]);
   const all = req.user.role === 'admin' || me?.can_message_team;
   const rows = await many(
-    `SELECT u.id, u.name, u.title, u.role,
+    `SELECT u.id, u.name, u.title, u.role, u.deleted_at IS NOT NULL AS removed,
        (SELECT count(*)::int FROM direct_messages d WHERE d.sender_id = u.id AND d.recipient_id = $1 AND d.read_at IS NULL) AS unread,
        last.body AS last_body, last.created_at AS last_at, last.sender_id AS last_sender
      FROM users u
@@ -43,9 +43,12 @@ router.get('/people', ah(async (req, res) => {
        SELECT body, created_at, sender_id FROM direct_messages d
        WHERE (d.sender_id = u.id AND d.recipient_id = $1) OR (d.sender_id = $1 AND d.recipient_id = u.id)
        ORDER BY d.id DESC LIMIT 1) last ON TRUE
-     WHERE u.active = TRUE AND u.id <> $1 AND ($2 OR u.role = 'admin')
+     WHERE u.id <> $1 AND (
+       (u.active = TRUE AND ($2 OR u.role = 'admin'))
+       -- admins keep access to conversations with removed members
+       OR ($3 AND u.deleted_at IS NOT NULL AND last.created_at IS NOT NULL))
      ORDER BY last.created_at DESC NULLS LAST, u.name`,
-    [req.user.id, all]
+    [req.user.id, all, req.user.role === 'admin']
   );
   res.json(rows);
 }));
@@ -62,7 +65,8 @@ router.get('/unread', ah(async (req, res) => {
 
 router.get('/dm/:userId(\\d+)', ah(async (req, res) => {
   const other = Number(req.params.userId);
-  if (!(await canMessage(req.user, other))) return res.status(404).json({ error: 'Conversation not found.' });
+  const removedPeer = req.user.role === 'admin' && (await one('SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NOT NULL', [other]));
+  if (!removedPeer && !(await canMessage(req.user, other))) return res.status(404).json({ error: 'Conversation not found.' });
   const after = Number(req.query.after) || 0;
   const rows = await many(
     `SELECT * FROM (SELECT d.id, d.sender_id, d.recipient_id, d.body, d.important, d.read_at, d.created_at
@@ -75,7 +79,7 @@ router.get('/dm/:userId(\\d+)', ah(async (req, res) => {
   if (marked.rowCount) {
     await query("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND kind = 'message' AND link = $2 AND read_at IS NULL", [req.user.id, `/messages?with=${other}`]);
   }
-  const peer = await one('SELECT id, name, title, role FROM users WHERE id = $1', [other]);
+  const peer = await one('SELECT id, name, title, role, deleted_at IS NOT NULL AS removed FROM users WHERE id = $1', [other]);
   res.json({ peer, messages: rows });
 }));
 

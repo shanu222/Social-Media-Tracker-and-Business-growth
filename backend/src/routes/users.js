@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { z } from 'zod';
-import { many, one, query } from '../db.js';
+import { many, one, query, tx } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { ah, parse } from '../util.js';
@@ -14,10 +15,14 @@ const role = z.enum(['admin', 'manager', 'viewer']);
 
 router.get(
   '/',
-  ah(async (_req, res) => {
+  ah(async (req, res) => {
+    // ?removed=true lists removed members (history kept); otherwise current members
+    const removed = req.query.removed === 'true';
     res.json(
       await many(
-        'SELECT id, email, notify_email, email_notifications, name, title, can_message_team, role, active, last_login_at, created_at, must_change_password FROM users ORDER BY created_at'
+        `SELECT id, ${removed ? 'former_email AS email' : 'email'}, notify_email, email_notifications, name, title, can_message_team, role, active,
+           last_login_at, created_at, must_change_password, deleted_at
+         FROM users WHERE deleted_at IS ${removed ? 'NOT NULL' : 'NULL'} ORDER BY ${removed ? 'deleted_at DESC' : 'created_at'}`
       )
     );
   })
@@ -61,7 +66,7 @@ router.patch(
     if (id === req.user.id && (body.active === false || (body.role && body.role !== 'admin'))) {
       return res.status(400).json({ error: 'You cannot disable or demote your own account.' });
     }
-    const current = await one('SELECT * FROM users WHERE id = $1', [id]);
+    const current = await one('SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
     if (!current) return res.status(404).json({ error: 'User not found.' });
     if (body.email && body.email.toLowerCase() !== current.email) {
       const taken = await one('SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2', [body.email, id]);
@@ -84,6 +89,44 @@ router.patch(
     );
     await audit(req, 'user.updated', 'user', id, { ...body, password: body.password ? '(reset)' : undefined });
     res.json(user);
+  })
+);
+
+/**
+ * Removes a team member: their login stops working at once and the email can be reused,
+ * but their messages, tasks, comments, time and reports stay for the admin to see.
+ */
+router.delete(
+  '/:id(\\d+)',
+  ah(async (req, res) => {
+    const id = Number(req.params.id);
+    if (id === req.user.id) return res.status(400).json({ error: 'You cannot remove your own account.' });
+    const u = await one('SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
+    if (!u) return res.status(404).json({ error: 'Team member not found.' });
+    if (u.role === 'admin') {
+      const { n } = await one("SELECT count(*)::int AS n FROM users WHERE role = 'admin' AND active = TRUE AND deleted_at IS NULL AND id <> $1", [id]);
+      if (n === 0) return res.status(400).json({ error: 'Keep at least one active admin.' });
+    }
+    const open = await tx(async (c) => {
+      await c.query(
+        `UPDATE users SET deleted_at = now(), active = FALSE, token_version = token_version + 1,
+           former_email = email, email = $2, notify_email = NULL, email_notifications = FALSE,
+           password_hash = $3, can_message_team = FALSE
+         WHERE id = $1`,
+        [id, `removed-${id}-${crypto.randomBytes(4).toString('hex')}@removed.invalid`, await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10)]
+      );
+      // Stop any running timer, take them off products, clear their pending notices
+      await c.query(
+        `UPDATE task_time SET ended_at = now(), minutes = GREATEST(1, LEAST(600, round(extract(epoch FROM now() - started_at) / 60)::int))
+         WHERE user_id = $1 AND ended_at IS NULL`, [id]);
+      await c.query('DELETE FROM product_members WHERE user_id = $1', [id]);
+      await c.query('DELETE FROM notifications WHERE user_id = $1', [id]);
+      await c.query('DELETE FROM dm_email_state WHERE user_id = $1 OR peer_id = $1', [id]);
+      const { rows } = await c.query("SELECT count(*)::int AS n FROM tasks WHERE assigned_to = $1 AND status IN ('todo','in_progress')", [id]);
+      return rows[0].n;
+    });
+    await audit(req, 'user.removed', 'user', id, { email: u.email, name: u.name });
+    res.json({ ok: true, openTasks: open });
   })
 );
 

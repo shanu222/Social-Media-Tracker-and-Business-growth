@@ -675,3 +675,7 @@ a.att:hover { filter: brightness(0.97); }
 }
 .dash .panel.person-head { flex-direction: row; align-items: center; }
 .avatar svg { width: 18px; height: 18px; }
+.removed-box { padding: 4px 16px 14px; }
+.removed-box .table-wrap { margin-top: 6px; border: 1px solid var(--line-2); border-radius: 10px; }
+.removed-box .btn + .btn { margin-left: 6px; }
+.removed-tag { margin-left: 6px; font-size: 10.5px; padding: 1px 6px; }

@@ -22,7 +22,7 @@ export const globalTasks = Router();
 
 const TASK_SELECT = `
   SELECT t.*, p.name AS product_name, p.color AS product_color,
-    ua.name AS assigned_name, uc.name AS created_by_name, ud.name AS completed_by_name,
+    CASE WHEN ua.deleted_at IS NOT NULL THEN ua.name || ' (removed)' ELSE ua.name END AS assigned_name, uc.name AS created_by_name, ud.name AS completed_by_name,
     (SELECT coalesce(json_agg(json_build_object('id', f.id, 'name', f.name, 'mime', f.mime, 'size', f.size) ORDER BY f.id), '[]')
        FROM files f WHERE f.task_id = t.id) AS files,
     (SELECT coalesce(json_agg(json_build_object('id', l.id, 'title', l.title, 'url', l.url, 'content_type', l.content_type) ORDER BY l.id), '[]')

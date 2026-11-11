@@ -6,7 +6,7 @@ import {
 import { api } from '../api';
 import { useAuth, useToast, Loading, Modal, ROLE_LABEL, timeAgo, type Role } from '../lib';
 
-interface Person { id: number; name: string; title: string | null; role: Role; unread: number; last_body: string | null; last_at: string | null; last_sender: number | null }
+interface Person { id: number; name: string; title: string | null; role: Role; removed?: boolean; unread: number; last_body: string | null; last_at: string | null; last_sender: number | null }
 interface Dm { id: number; sender_id: number; recipient_id: number; body: string; important: boolean; read_at: string | null; created_at: string }
 type Kind = 'announcement' | 'meeting' | 'reminder' | 'deadline';
 interface Ann {
@@ -73,7 +73,7 @@ export default function Messages() {
             <button key={p.id} className={`msg-item ${withId === p.id ? 'on' : ''}`} onClick={() => open(p.id)}>
               <span className="avatar">{initials(p.name)}</span>
               <span className="meta">
-                <b>{p.name}</b>
+                <b>{p.name}{p.removed && <span className="badge removed-tag">Removed</span>}</b>
                 <span className="faint">{p.last_body ? `${p.last_sender === user?.id ? 'You: ' : ''}${p.last_body}` : roleText(p)}</span>
               </span>
               <span className="side">
@@ -95,7 +95,7 @@ export default function Messages() {
 function Thread({ peerId, onBack, onSent }: { peerId: number; onBack: () => void; onSent: () => void }) {
   const { user, can } = useAuth();
   const toast = useToast();
-  const [peer, setPeer] = useState<{ id: number; name: string; title: string | null; role: Role } | null>(null);
+  const [peer, setPeer] = useState<{ id: number; name: string; title: string | null; role: Role; removed?: boolean } | null>(null);
   const [msgs, setMsgs] = useState<Dm[] | null>(null);
   const [text, setText] = useState('');
   const [important, setImportant] = useState(false);
@@ -141,7 +141,7 @@ function Thread({ peerId, onBack, onSent }: { peerId: number; onBack: () => void
     <div className="panel chat dm">
       <header className="dm-head">
         <button className="btn btn-ghost btn-icon only-mobile" onClick={onBack} aria-label="Back"><ArrowLeft size={18} /></button>
-        {peer && <><span className="avatar">{initials(peer.name)}</span><div><b>{peer.name}</b><div className="faint small">{roleText(peer)}</div></div></>}
+        {peer && <><span className="avatar">{initials(peer.name)}</span><div><b>{peer.name}</b><div className="faint small">{peer.removed ? 'Removed from the team · read-only history' : roleText(peer)}</div></div></>}
       </header>
       <div className="chat-list" ref={listRef} aria-live="polite">
         {!msgs && <Loading />}
@@ -162,6 +162,7 @@ function Thread({ peerId, onBack, onSent }: { peerId: number; onBack: () => void
           );
         })}
       </div>
+      {peer?.removed ? <div className="chat-form faint small" style={{ textAlign: 'center' }}>This person was removed from the team. Their messages are kept for your records.</div> : (
       <form className="chat-form" onSubmit={send}>
         <textarea className="input" rows={2} placeholder={`Message ${peer?.name.split(' ')[0] || ''}…`} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} aria-label="Message" />
         <div className="chat-actions">
@@ -169,6 +170,7 @@ function Thread({ peerId, onBack, onSent }: { peerId: number; onBack: () => void
           <button className="btn btn-primary" disabled={sending || !text.trim()}><Send size={15} /> Send</button>
         </div>
       </form>
+      )}
     </div>
   );
 }

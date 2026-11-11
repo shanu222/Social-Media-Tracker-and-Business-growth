@@ -136,7 +136,8 @@ async function bootstrapManager() {
   const email = process.env.MANAGER_EMAIL?.trim().toLowerCase();
   const password = process.env.MANAGER_PASSWORD;
   if (!email || !password) return;
-  const exists = await one('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
+  // Skip if the account exists, or was removed by the admin (never recreate a removed member)
+  const exists = await one('SELECT 1 FROM users WHERE lower(email) = $1 OR lower(former_email) = $1', [email]);
   if (exists) return;
   await one(
     'INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,FALSE) RETURNING id',

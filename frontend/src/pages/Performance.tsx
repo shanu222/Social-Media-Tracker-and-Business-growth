@@ -81,6 +81,7 @@ export default function Performance() {
   const q = new URLSearchParams({ from, to, ...(person ? { user_id: person } : {}), ...(product ? { product_id: product } : {}) }).toString();
   const { data, error, loading, reload } = useData<R>(`/performance?${q}`);
   const users = useData<{ id: number; name: string; role: Role; active: boolean; title: string | null }[]>(isAdmin ? '/users' : null);
+  const removed = useData<{ id: number; name: string }[]>(isAdmin ? '/users?removed=true' : null);
   const products = useData<{ id: number; name: string }[]>('/products');
   const [ai, setAi] = useState<Ai | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -116,6 +117,7 @@ export default function Performance() {
             <select id="fp" className="input" value={person} onChange={(e) => { set('user', e.target.value); setAi(null); }}>
               <option value="">Whole team</option>
               {(users.data || []).filter((u) => u.active && u.role !== 'viewer').map((u) => <option key={u.id} value={u.id}>{u.name}{u.id === user?.id ? ' (you)' : ''}</option>)}
+              {(removed.data || []).length > 0 && <optgroup label="Removed members">{removed.data!.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</optgroup>}
             </select>
           </div>
         )}

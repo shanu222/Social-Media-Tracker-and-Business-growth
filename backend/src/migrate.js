@@ -387,6 +387,9 @@ CREATE TABLE IF NOT EXISTS ai_status (
 const SCHEMA_V4 = `
 ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS can_message_team BOOLEAN NOT NULL DEFAULT FALSE;
+-- Removed team members keep their history; the login is closed and the email freed
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS former_email TEXT;
 
 -- Time spent on tasks: a running timer has ended_at NULL; manual entries have both set.
 CREATE TABLE IF NOT EXISTS task_time (

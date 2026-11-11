@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { AlertTriangle, DatabaseBackup, Globe, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, DatabaseBackup, Gauge, Globe, MessagesSquare, Trash2, UserX, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { BRAND } from '../brand';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
@@ -318,6 +319,9 @@ function UsersPanel() {
   const { data, reload } = useData<U[]>('/users');
   const [editing, setEditing] = useState<PersonForm | null>(null);
   const [busy, setBusy] = useState(false);
+  const removedList = useData<(U & { deleted_at: string })[]>('/users?removed=true');
+  const [removing, setRemoving] = useState<U | null>(null);
+  const [showRemoved, setShowRemoved] = useState(false);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -339,6 +343,15 @@ function UsersPanel() {
       setEditing(null);
       reload();
     } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
+  }
+  async function remove() {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      const r = await api.del<{ openTasks: number }>(`/users/${removing.id}`);
+      toast(`${removing.name} removed${r.openTasks ? `. ${r.openTasks} open task${r.openTasks === 1 ? ' is' : 's are'} still assigned to them — reassign in Tasks.` : '.'}`);
+      setRemoving(null); reload(); removedList.reload();
+    } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   }
   async function toggleActive(u: U) {
     try { await api.patch(`/users/${u.id}`, { active: !u.active }); toast(u.active ? `${u.name} disabled` : `${u.name} enabled`); reload(); } catch (e) { toast((e as Error).message, true); }
@@ -367,15 +380,51 @@ function UsersPanel() {
               <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge">Emails off</span></div>}</td>
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
-              <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
+              <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
                 <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => toggleActive(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
+                {u.id !== user?.id && <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(u)} aria-label={`Remove ${u.name}`}><Trash2 size={14} /> Remove</button>}
               </td>
             </tr>
           ))}</tbody>
         </table>
       </div>
+      {(removedList.data?.length ?? 0) > 0 && (
+        <div className="removed-box">
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowRemoved((v) => !v)}><UserX size={14} /> {showRemoved ? 'Hide' : 'Show'} removed members ({removedList.data!.length})</button>
+          {showRemoved && (
+            <div className="table-wrap">
+              <table className="t">
+                <thead><tr><th>Name</th><th>Job title</th><th>Former login</th><th>Removed</th><th /></tr></thead>
+                <tbody>{removedList.data!.map((u) => (
+                  <tr key={u.id}>
+                    <td><b>{u.name}</b></td>
+                    <td className="muted">{u.title || '—'}</td>
+                    <td className="muted">{u.email}</td>
+                    <td className="muted">{when(u.deleted_at)}</td>
+                    <td className="r" style={{ whiteSpace: 'nowrap' }}>
+                      <Link className="btn btn-sm" to={`/messages?with=${u.id}`}><MessagesSquare size={14} /> Messages</Link>
+                      <Link className="btn btn-sm" to={`/performance?user=${u.id}&period=quarter`}><Gauge size={14} /> Work history</Link>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+      {removing && (
+        <Modal title={`Remove ${removing.name}?`} onClose={() => setRemoving(null)} footer={
+          <><button className="btn" onClick={() => setRemoving(null)}>Cancel</button><button className="btn btn-stop" disabled={busy} onClick={remove}><Trash2 size={15} /> {busy ? 'Removing…' : 'Remove member'}</button></>
+        }>
+          <div className="stack" style={{ gap: 10 }}>
+            <p>{removing.name} will be signed out and can no longer sign in. Their login email can be used for someone else.</p>
+            <div className="notice info"><AlertTriangle /><span>Everything they did stays: messages, tasks, comments, time logged and performance history. You can open it any time from <b>Removed members</b>.</span></div>
+            <p className="muted small">Open tasks stay assigned to them until you reassign them. To pause access instead, use Disable.</p>
+          </div>
+        </Modal>
+      )}
       {editing && (
         <Modal title={isNew ? 'Add a team member' : `Edit ${editing.name}`} onClose={() => setEditing(null)}
           footer={<><button className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" form="person-form" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add person' : 'Save changes'}</button></>}>
