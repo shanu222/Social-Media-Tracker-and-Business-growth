@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { many, one } from '../db.js';
-import { growthSummary, checklistCompletion, buildInsights, businessMetrics } from '../services/analytics.js';
-import { ah, parse, today, addDays } from '../util.js';
+import { growthSummary, checklistCompletion, buildInsights, businessMetrics, monthlyKpis } from '../services/analytics.js';
+import { ah, parse, today, addDays, monthRange } from '../util.js';
 
 const router = Router();
 
@@ -45,8 +45,40 @@ router.get('/', ah(async (req, res) => {
     cursor = addDays(cursor, -1);
   }
 
+  // Followers trajectory: this period vs the previous period, aligned by day
+  const trajectory = summary.daily.map((d, i) => ({ date: d.date, total: d.total, previous: prevSummary.daily[i]?.total ?? null, reach: d.reach, engagements: d.engagements }));
+
+  // Audience by platform and by product
+  const group = (key) => {
+    const m = new Map();
+    for (const a of summary.accounts) {
+      const k = a[key];
+      if (k === null || k === undefined) continue;
+      const g = m.get(k) || { key: k, followers: 0, start: 0, net: 0, accounts: 0 };
+      g.followers += a.end_followers || 0; g.start += a.start_followers || 0; g.net += a.net_change || 0; g.accounts++;
+      m.set(k, g);
+    }
+    return [...m.values()].map((g) => ({ ...g, growth_pct: g.start ? Math.round((g.net / g.start) * 1000) / 10 : null })).sort((x, y) => y.followers - x.followers);
+  };
+  const productNames = new Map((await many('SELECT id, name, color FROM products WHERE archived = FALSE')).map((p) => [p.id, p]));
+  const products = group('product_id').filter((g) => productNames.has(g.key)).map((g) => ({ ...g, id: g.key, name: productNames.get(g.key).name }));
+  const platforms = group('platform').map((g) => ({ ...g, platform: g.key }));
+
+  // Business: last 6 months per metric, plus this month's goals
+  const month = end.slice(0, 7);
+  const months = [];
+  for (let k = 5; k >= 0; k--) { const [y, mo] = month.split('-').map(Number); months.push(new Date(Date.UTC(y, mo - 1 - k, 1)).toISOString().slice(0, 7)); }
+  const monthly = await Promise.all(months.map((m) => { const r = monthRange(m); return businessMetrics(r.start, r.end); }));
+  const businessTrend = (monthly[0] || []).map((m) => ({
+    id: m.id, name: m.name, unit: m.unit, higher_is_better: m.higher_is_better,
+    points: months.map((mo, i) => ({ month: mo, value: monthly[i].find((x) => x.id === m.id)?.value ?? null })),
+  })).filter((m) => m.points.some((p) => p.value !== null));
+  const goals = (await monthlyKpis(month)).filter((k) => k.target !== null && k.target !== undefined)
+    .map((k) => ({ id: k.id, name: k.name, unit: k.unit, value: k.value, target: k.target, higher_is_better: k.higher_is_better }));
+
   res.json({
     range: { start, end, days },
+    trajectory, products, platforms, businessTrend, goals,
     totals: summary.totals,
     previousTotals: prevSummary.totals,
     accounts: summary.accounts,

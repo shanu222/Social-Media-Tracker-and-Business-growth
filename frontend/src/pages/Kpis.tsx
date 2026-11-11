@@ -43,7 +43,7 @@ export default function Kpis() {
       <div className="page-head">
         <div>
           <h1>Targets & KPIs</h1>
-          <p>Set a target for each number at the start of the month. Actuals add up automatically from your daily updates.</p>
+          <p>Monthly targets. Actuals fill in from daily updates.</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month"><ChevronLeft size={18} /></button>

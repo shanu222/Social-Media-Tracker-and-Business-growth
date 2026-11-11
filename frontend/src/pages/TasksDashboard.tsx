@@ -37,7 +37,7 @@ export default function TasksDashboard() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Tasks</h1><p>Every task across all products. Select a tile to filter; open a task to see its full history.</p></div>
+        <div><h1>Tasks</h1><p>All tasks across products.</p></div>
         <button className="btn btn-primary" onClick={() => setComposing(true)}><Plus /> New task <Sparkles size={14} style={{ opacity: 0.8 }} /></button>
       </div>
       <div className="kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>

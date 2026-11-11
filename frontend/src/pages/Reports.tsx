@@ -41,7 +41,7 @@ export default function Reports() {
       <div className="page-head">
         <div>
           <h1>Reports</h1>
-          <p>Each report freezes the numbers for its period, so you can compare months later. Download as PDF to share with the team or clients.</p>
+          <p>Branded reports, ready to download as PDF.</p>
         </div>
       </div>
 

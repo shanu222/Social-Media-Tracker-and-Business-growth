@@ -54,7 +54,7 @@ export default function Files() {
       <div className="page-head">
         <div>
           <h1>Files</h1>
-          <p>Insights screenshots, content backups and invoices, stored in a private Cloudflare R2 bucket. Download links expire after 5 minutes.</p>
+          <p>Private, encrypted file storage.</p>
         </div>
       </div>
 

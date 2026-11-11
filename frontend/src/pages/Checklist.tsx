@@ -64,7 +64,7 @@ export default function Checklist() {
       <div className="page-head">
         <div>
           <h1>Checklist</h1>
-          <p>The daily routine takes about 30–40 minutes. Tick each task as it is done; the team sees the same list.</p>
+          <p>Today's routine, shared with the team.</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-icon" onClick={() => setDate(shiftDate(date, -7))} aria-label="Previous week"><ChevronLeft size={18} /></button>

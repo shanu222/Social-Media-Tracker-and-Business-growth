@@ -33,7 +33,7 @@ export default function Products() {
       <div className="page-head">
         <div>
           <h1>Products</h1>
-          <p>{can('admin') ? 'Each product has its own workspace: accounts, content to post, published links, files and chat.' : 'The products you manage. Open one to see what needs posting.'}</p>
+          <p>{can('admin') ? 'Every RTL product and its workspace.' : 'Your products. Open one to see your tasks.'}</p>
         </div>
         <div className="page-actions">
           {can('admin') && <label className="check"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Show archived</label>}

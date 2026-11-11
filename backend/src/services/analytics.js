@@ -67,7 +67,7 @@ export async function monthlyKpis(month) {
  * Follower counts are carried forward on days with no entry.
  */
 export async function growthSummary(start, end) {
-  const accounts = await many('SELECT id, brand, username, platform, color, two_factor_enabled FROM accounts WHERE archived = FALSE ORDER BY id');
+  const accounts = await many('SELECT id, brand, username, platform, color, two_factor_enabled, product_id, baseline_date, baseline_followers, baseline_posts FROM accounts WHERE archived = FALSE ORDER BY id');
   const snaps = await many(
     `SELECT * FROM snapshots WHERE date <= $2 AND (date >= $1 OR date >= (
         SELECT coalesce(max(date), '1900-01-01') FROM snapshots s2 WHERE s2.account_id = snapshots.account_id AND s2.date < $1
@@ -79,8 +79,17 @@ export async function growthSummary(start, end) {
 
   const perAccount = accounts.map((a) => {
     const own = snaps.filter((s) => s.account_id === a.id);
+    // The starting numbers entered when the account was added count as its first data point
+    if (a.baseline_date && a.baseline_date <= end && !own.some((s) => s.date === a.baseline_date && s.followers !== null)) {
+      const before0 = own.filter((s) => s.date < start && s.followers !== null).at(-1);
+      if (a.baseline_date >= start || !before0 || before0.date < a.baseline_date) {
+        own.push({ account_id: a.id, date: a.baseline_date, followers: a.baseline_followers, posts: a.baseline_posts, _baseline: true });
+        own.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+      }
+    }
     const before = own.filter((s) => s.date < start && s.followers !== null).at(-1);
     const inRange = own.filter((s) => s.date >= start);
+    const logged = inRange.filter((s) => !s._baseline);
     const withF = inRange.filter((s) => s.followers !== null);
     const startRow = before || withF[0] || null;
     const endRow = withF.at(-1) || before || null;
@@ -93,7 +102,7 @@ export async function growthSummary(start, end) {
     const endP = [...inRange].reverse().find((s) => s.posts !== null)?.posts ?? startP;
     const postsAdded = startP !== null && endP !== null ? endP - startP : null;
 
-    const sum = (k) => inRange.reduce((t, s) => t + (s[k] || 0), 0);
+    const sum = (k) => logged.reduce((t, s) => t + (s[k] || 0), 0);
     const likes = sum('likes'), comments = sum('comments'), shares = sum('shares');
     const reach = sum('reach'), impressions = sum('impressions');
     const dmsIn = sum('dms_received'), dmsAns = sum('dms_answered');
@@ -123,6 +132,7 @@ export async function growthSummary(start, end) {
       brand: a.brand,
       username: a.username,
       platform: a.platform,
+      product_id: a.product_id,
       color: a.color,
       two_factor_enabled: a.two_factor_enabled,
       start_followers: startF,
@@ -136,10 +146,24 @@ export async function growthSummary(start, end) {
       dms_received: dmsIn,
       dms_answered: dmsAns,
       response_rate: dmsIn ? round(pct(dmsAns, dmsIn)) : null,
-      days_logged: inRange.length,
+      days_logged: logged.length,
       rating: ratingFromGrowth(growth, net ?? 0),
       deltas,
     };
+  });
+
+  const dayIdx = new Map(days.map((d, i) => [d, i]));
+  const daily = days.map((d) => ({ date: d, reach: 0, engagements: 0, total: null }));
+  for (const sn of snaps) {
+    const i = dayIdx.get(sn.date);
+    if (i === undefined) continue;
+    daily[i].reach += sn.reach || 0;
+    daily[i].engagements += (sn.likes || 0) + (sn.comments || 0) + (sn.shares || 0);
+  }
+  series.forEach((row, i) => {
+    let t = 0, any = false;
+    for (const a of accounts) { const v = row[`a${a.id}`]; if (v !== null && v !== undefined) { t += v; any = true; } }
+    daily[i].total = any ? t : null;
   });
 
   const totStart = perAccount.reduce((t, a) => t + (a.start_followers || 0), 0);
@@ -163,7 +187,7 @@ export async function growthSummary(start, end) {
     two_factor_coverage: accounts.length ? round(pct(accounts.filter((a) => a.two_factor_enabled).length, accounts.length), 0) : null,
   };
 
-  return { start, end, days, totals, accounts: perAccount, series };
+  return { start, end, days, totals, accounts: perAccount, series, daily };
 }
 
 export async function checklistCompletion(start, end) {
@@ -184,45 +208,50 @@ export async function checklistCompletion(start, end) {
   return { expected, done: row.n, pct: expected ? round(pct(row.n, expected), 0) : null };
 }
 
-/** Plain-language observations a manager can act on. */
+const names = (list, max = 3) => {
+  const n = list.map((a) => a.brand);
+  return n.length <= max ? n.join(', ').replace(/, ([^,]*)$/, ' and $1') : `${n.slice(0, max).join(', ')} and ${n.length - max} more`;
+};
+
+/** Short, plain-language observations a manager can act on. */
 export function buildInsights(summary, checklist) {
   const out = [];
   const acc = summary.accounts.filter((a) => a.end_followers !== null);
   const ranked = [...acc].filter((a) => a.growth_pct !== null).sort((a, b) => b.growth_pct - a.growth_pct);
   if (ranked.length && ranked[0].growth_pct > 0) {
     const t = ranked[0];
-    out.push({ tone: 'good', text: `${t.brand} grew fastest: +${t.net_change} followers (${t.growth_pct}%). Study its recent posts and repeat the format on smaller accounts.` });
+    out.push({ tone: 'good', text: `${t.brand} grew fastest: +${t.net_change} followers (${t.growth_pct}%). Repeat its best format elsewhere.` });
   }
   const flat = acc.filter((a) => (a.net_change ?? 0) <= 0 && a.days_logged > 0);
   if (flat.length) {
-    out.push({ tone: 'warn', text: `No follower growth on ${flat.map((a) => a.brand).join(', ')}. Try 3 posts a week, Reels with trending audio, and collaborations with related pages.` });
+    out.push({ tone: 'warn', text: `No growth on ${names(flat)}. Aim for 3 posts a week.` });
   }
   const noPosts = acc.filter((a) => a.posts_added === 0);
   if (noPosts.length) {
-    out.push({ tone: 'warn', text: `Nothing was posted on ${noPosts.map((a) => a.brand).join(', ')} in this period. Consistency is the biggest driver of reach.` });
+    out.push({ tone: 'warn', text: `No posts on ${names(noPosts)} this period.` });
   }
   const notLogged = summary.accounts.filter((a) => a.days_logged === 0);
   if (notLogged.length) {
-    out.push({ tone: 'info', text: `No numbers were logged for ${notLogged.map((a) => a.brand).join(', ')}. Use Daily update so growth can be measured.` });
+    out.push({ tone: 'info', text: `${notLogged.length} account${notLogged.length === 1 ? '' : 's'} not updated this period (${names(notLogged, 2)}).` });
   }
   if (summary.totals.engagement_rate !== null) {
     const er = summary.totals.engagement_rate;
     out.push({
       tone: er >= 3 ? 'good' : 'info',
       text: er >= 3
-        ? `Engagement rate is healthy at ${er}% of reach.`
-        : `Engagement rate is ${er}% of reach. Ask questions in captions and reply to every comment within an hour of posting.`,
+        ? `Engagement is healthy at ${er}% of reach.`
+        : `Engagement is ${er}% of reach. Ask questions in captions and reply fast.`,
     });
   }
   if (summary.totals.response_rate !== null && summary.totals.response_rate < 90) {
-    out.push({ tone: 'warn', text: `Only ${summary.totals.response_rate}% of DMs were answered. Unanswered messages are lost leads.` });
+    out.push({ tone: 'warn', text: `${summary.totals.response_rate}% of DMs answered. Unanswered messages are lost leads.` });
   }
   const no2fa = summary.accounts.filter((a) => !a.two_factor_enabled);
   if (no2fa.length) {
-    out.push({ tone: 'risk', text: `Two-factor authentication is off on ${no2fa.map((a) => a.brand).join(', ')}. Turn it on to protect these accounts.` });
+    out.push({ tone: 'risk', text: `2FA is off on ${no2fa.length} account${no2fa.length === 1 ? '' : 's'}. Turn it on to protect them.` });
   }
   if (checklist?.pct !== null && checklist?.pct !== undefined && checklist.pct < 70) {
-    out.push({ tone: 'info', text: `Checklist completion is ${checklist.pct}%. The daily routine takes about 30–40 minutes; block that time in the calendar.` });
+    out.push({ tone: 'info', text: `Checklist ${checklist.pct}% done. Block 30 minutes a day for it.` });
   }
   return out;
 }

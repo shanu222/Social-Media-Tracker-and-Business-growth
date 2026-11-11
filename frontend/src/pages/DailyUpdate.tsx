@@ -29,7 +29,7 @@ export default function DailyUpdate() {
       <div className="page-head">
         <div>
           <h1>Daily update</h1>
-          <p>Enter today's numbers from each app. Blank fields are skipped; you can come back and edit any day.</p>
+          <p>Today's numbers from each app. Blank fields are skipped.</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-icon" onClick={() => setDate(shiftDate(date, -1))} aria-label="Previous day"><ChevronLeft size={18} /></button>

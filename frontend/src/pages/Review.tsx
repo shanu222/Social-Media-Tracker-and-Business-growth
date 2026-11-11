@@ -53,7 +53,7 @@ export default function Review() {
       <div className="page-head">
         <div>
           <h1>Monthly review</h1>
-          <p>Look back on each account, write what worked, and plan next month's actions. All of it goes into the monthly report.</p>
+          <p>What worked, what didn't, and next month's plan.</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month"><ChevronLeft size={18} /></button>
