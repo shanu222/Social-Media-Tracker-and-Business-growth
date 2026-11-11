@@ -148,9 +148,24 @@ router.post(
     const body = parse(accountSchema, req.body);
     const dup = await one('SELECT 1 FROM accounts WHERE platform = $1 AND lower(username) = lower($2)', [body.platform, body.username]);
     if (dup) return res.status(409).json({ error: `@${body.username} on ${body.platform} is already registered.` });
-    const acc = await tx((c) => insertAccount(c, body, req.user.id));
-    await audit(req, 'account.created', 'account', acc.id, { brand: acc.brand, username: acc.username });
-    res.status(201).json(present(acc, req.user.role));
+    let acc = await tx((c) => insertAccount(c, body, req.user.id));
+    await audit(req, 'account.created', 'account', acc.id, { brand: acc.brand, username: acc.username }, acc.product_id);
+    // No starting numbers typed in? Fetch them now from the platform and use them as the baseline.
+    let synced = false;
+    if (acc.sync_enabled && canSync(acc.platform) && !acc.baseline_followers && !acc.baseline_posts) {
+      try {
+        const r = await syncAccount(acc.id);
+        acc = await one(
+          `UPDATE accounts SET baseline_followers = coalesce($2, baseline_followers), baseline_posts = coalesce($3, baseline_posts),
+             baseline_following = coalesce($4, baseline_following) WHERE id = $1 RETURNING *`,
+          [acc.id, r.followers ?? null, r.posts ?? null, r.following ?? null]
+        );
+        synced = r.followers !== null && r.followers !== undefined;
+      } catch {
+        acc = await one('SELECT * FROM accounts WHERE id = $1', [acc.id]); // sync_error is shown on the card
+      }
+    }
+    res.status(201).json({ ...present(acc, req.user.role), synced });
   })
 );
 

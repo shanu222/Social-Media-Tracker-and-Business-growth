@@ -111,7 +111,9 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
   const { can } = useAuth();
   const toast = useToast();
   const [syncing, setSyncing] = useState<number | null>(null);
-  const [addingAccount, setAddingAccount] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [addingAccount, setAddingAccount] = useState(params.get('add') === 'account');
+  const closeAdd = () => { setAddingAccount(false); if (params.get('add')) { params.delete('add'); setParams(params, { replace: true }); } };
   const totalFollowers = ws.accounts.reduce((s, a) => s + (a.followers ?? a.baseline_followers ?? 0), 0);
   const weekGain = ws.accounts.reduce((s, a) => s + (a.followers !== null && a.week_ago_followers !== null ? a.followers - a.week_ago_followers : 0), 0);
 
@@ -174,7 +176,7 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
         <Activity productId={ws.product.id} limit={6} />
       </div>
       {addingAccount && (
-        <AccountForm account={null} defaultProductId={ws.product.id} onClose={() => setAddingAccount(false)} onSaved={() => { setAddingAccount(false); reload(); }} />
+        <AccountForm account={null} defaultProductId={ws.product.id} onClose={closeAdd} onSaved={() => { closeAdd(); reload(); }} />
       )}
     </div>
   );

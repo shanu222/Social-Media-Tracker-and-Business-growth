@@ -201,11 +201,14 @@ Then **Settings → Send a test email to me**. (SMTP via `SMTP_HOST/PORT/USER/PA
 
 ### 4. First-day setup
 
-1. **Accounts → Add account** (or **Import CSV**) for each page with today's posts / followers / following as the baseline.
-   CSV headers: `Brand,Username,Platform,Posts,Followers,Following,YouTube,Login email,2FA,URL,Notes`.
-2. **Settings → Team → Add person** for your marketing manager (role *Manager*).
-3. **Targets & KPIs** → set this month's targets; **Edit metrics** to add your own (e.g. Fiverr orders, Upwork proposals).
-4. From then on: **Daily update** + **Checklist** every day, **Monthly review** + **Reports** at month end.
+1. **Products → New product**: name, one-line summary, website (optional) and who manages it. Colour is picked
+   automatically; description is under *More options*. You land on the product ready to add accounts.
+2. **Add account**: paste the profile link (Instagram, YouTube, Facebook, Telegram, Discord, LinkedIn…). Platform,
+   username, chart colour and display name fill in automatically. For YouTube, Telegram and Discord leave the numbers
+   empty — they're fetched when you save and update every 6 hours.
+3. **Settings → Team → Add person** for extra team members.
+4. Every day: **Daily update** (only Instagram/Facebook-style accounts need typing — followers, following, posts) and
+   the **Checklist**. Month end: **Monthly review** and **Reports**.
 
 ---
 

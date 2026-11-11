@@ -19,16 +19,17 @@ router.get(
   ah(async (req, res) => {
     const date = parse(zDate.optional(), req.query.date) || today();
     const rows = await many(
-      `SELECT a.id AS account_id, a.brand, a.username, a.platform, a.color,
+      `SELECT a.id AS account_id, a.brand, a.username, a.platform, a.color, a.sync_enabled, pr.name AS product_name,
          to_jsonb(s.*) AS entry, to_jsonb(p.*) AS previous
        FROM accounts a
+       LEFT JOIN products pr ON pr.id = a.product_id
        LEFT JOIN snapshots s ON s.account_id = a.id AND s.date = $1
        LEFT JOIN LATERAL (
          SELECT date, followers, following, posts FROM snapshots x
          WHERE x.account_id = a.id AND x.date < $1 AND x.followers IS NOT NULL
          ORDER BY date DESC LIMIT 1
        ) p ON TRUE
-       WHERE a.archived = FALSE ORDER BY a.id`,
+       WHERE a.archived = FALSE ORDER BY pr.name NULLS LAST, a.id`,
       [date]
     );
     res.json({ date, rows });

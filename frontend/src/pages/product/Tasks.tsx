@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  CalendarClock, Check, HelpCircle, Link as LinkIcon, MessageSquare, Paperclip, Pencil, Play, Plus, RotateCcw, Send, Sparkles, Trash2, X,
+  CalendarClock, Check, ChevronDown, HelpCircle, Link as LinkIcon, MessageSquare, Paperclip, Pencil, Play, Plus, RotateCcw, Send, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, ROLE_LABEL, type Role } from '../../lib';
@@ -74,6 +74,7 @@ export function TaskForm({ productId, task, people, onClose, onSaved }: { produc
   const [links, setLinks] = useState<{ title: string; url: string }[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [more, setMore] = useState(Boolean(task && (task.instructions || task.priority !== 'normal')));
   const isDraft = task?.status === 'draft';
   const togglePlatform = (p: string) => setF((x) => ({ ...x, platforms: x.platforms.includes(p) ? x.platforms.filter((y) => y !== p) : [...x.platforms, p] }));
 
@@ -116,7 +117,7 @@ export function TaskForm({ productId, task, people, onClose, onSaved }: { produc
           </div>
         </div>
         <div className="field full"><label htmlFor="tt">Title</label><input id="tt" className="input" required value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder={f.kind === 'post' ? 'e.g. Launch reel for the new physics course' : 'e.g. Update all bios with the new website link'} /></div>
-        <div className="field full"><label htmlFor="tdsc">Description</label><textarea id="tdsc" className="input" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What needs to happen and why" /></div>
+        <div className="field full"><label htmlFor="tdsc">Description</label><textarea id="tdsc" className="input" rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What needs to happen and why" /></div>
         {f.kind === 'post' && (
           <>
             <div className="field full">
@@ -127,18 +128,11 @@ export function TaskForm({ productId, task, people, onClose, onSaved }: { produc
             <div className="field full"><label htmlFor="th">Hashtags</label><input id="th" className="input" value={f.hashtags} onChange={(e) => setF({ ...f, hashtags: e.target.value })} /></div>
           </>
         )}
-        <div className="field full"><label htmlFor="ti">Instructions & notes</label><textarea id="ti" className="input" rows={3} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} placeholder="Steps, timing, tone, tagging…" /></div>
         <div className="field"><label htmlFor="ta">Assign to</label>
           <select id="ta" className="input" value={f.assigned_to} onChange={(e) => setF({ ...f, assigned_to: e.target.value })}>
             <option value="">Anyone on this product</option>{people.map((m) => <option key={m.id} value={m.id}>{m.name}{m.role === 'admin' ? ' (admin)' : ''}</option>)}
           </select>
         </div>
-        <div className="field"><label htmlFor="tp">Priority</label>
-          <select id="tp" className="input" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
-            <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
-          </select>
-        </div>
-        <div className="field"><label htmlFor="tsd">Start date</label><input id="tsd" type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></div>
         <div className="field"><label htmlFor="td">Due date</label><input id="td" type="date" className="input" min={f.start_date || undefined} value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></div>
         <div className="field full">
           <label>Links to content (Google Drive, YouTube, reels, docs…)</label>
@@ -157,6 +151,22 @@ export function TaskForm({ productId, task, people, onClose, onSaved }: { produc
           <input id="tf" type="file" multiple onChange={(e) => setFiles([...(e.target.files || [])])} />
           <span className="hint">Large videos upload straight to Cloudflare storage (up to 5 GB each). Everything is also saved in the product library.</span>
         </div>
+        <div className="full">
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: -8 }} onClick={() => setMore((m) => !m)} aria-expanded={more}>
+            <ChevronDown size={15} style={{ transform: more ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }} /> More options: priority, start date, instructions
+          </button>
+        </div>
+        {more && (
+          <>
+        <div className="field"><label htmlFor="tp">Priority</label>
+          <select id="tp" className="input" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
+            <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
+          </select>
+        </div>
+        <div className="field"><label htmlFor="tsd">Start date</label><input id="tsd" type="date" className="input" value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></div>
+        <div className="field full"><label htmlFor="ti">Instructions & notes</label><textarea id="ti" className="input" rows={3} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} placeholder="Steps, timing, tone, tagging…" /></div>
+          </>
+        )}
       </form>
     </Modal>
   );

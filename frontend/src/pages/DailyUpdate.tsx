@@ -2,18 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Copy, Save } from 'lucide-react';
 import { api } from '../api';
-import { useAuth, useData, useToast, Loading, ErrorBox, AccountLabel, todayStr, shiftDate, prettyDate, signed, tone } from '../lib';
+import { useAuth, useData, useToast, Loading, ErrorBox, AccountLabel, PlatformChip, todayStr, shiftDate, prettyDate, signed, tone } from '../lib';
 
-const CORE = [
-  ['followers', 'Followers'], ['following', 'Following'], ['posts', 'Posts'],
-  ['likes', 'Likes'], ['comments', 'Comments'], ['reach', 'Reach'],
-  ['dms_received', 'DMs in'], ['dms_answered', 'DMs answered'],
+const CORE = [['followers', 'Followers'], ['following', 'Following'], ['posts', 'Posts']] as const;
+const EXTRA = [
+  ['likes', 'Likes'], ['comments', 'Comments'], ['reach', 'Reach'], ['dms_received', 'DMs in'], ['dms_answered', 'DMs answered'],
+  ['shares', 'Shares'], ['impressions', 'Impressions'], ['profile_visits', 'Profile visits'],
 ] as const;
-const EXTRA = [['shares', 'Shares'], ['impressions', 'Impressions'], ['profile_visits', 'Profile visits']] as const;
 type Field = (typeof CORE)[number][0] | (typeof EXTRA)[number][0];
 
 interface DayRow {
-  account_id: number; brand: string; username: string; platform: string; color: string | null;
+  account_id: number; brand: string; username: string; platform: string; color: string | null; sync_enabled: boolean; product_name: string | null;
   entry: (Record<Field, number | null> & { notes: string | null }) | null;
   previous: { date: string; followers: number | null; following: number | null; posts: number | null } | null;
 }
@@ -57,6 +56,7 @@ function SocialSheet({ date }: { date: string }) {
   const [more, setMore] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [showAuto, setShowAuto] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -126,16 +126,18 @@ function SocialSheet({ date }: { date: string }) {
   }
 
   const cols = more ? [...CORE, ...EXTRA] : CORE;
+  const autoRows = data.rows.filter((r) => r.sync_enabled);
+  const rows = showAuto ? data.rows : data.rows.filter((r) => !r.sync_enabled);
 
   return (
     <div className="panel">
       <div className="panel-head">
         <div>
           <h2>{prettyDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
-          <p>Grey numbers are the last values you logged. Change shows against that day.</p>
+          <p>Type today's followers, following and posts. Grey numbers are the last ones logged.{autoRows.length > 0 && !showAuto && <> {autoRows.length} account{autoRows.length > 1 ? 's update' : ' updates'} automatically and {autoRows.length > 1 ? 'are' : 'is'} hidden — <button className="btn btn-ghost btn-sm" style={{ padding: '0 4px', height: 'auto' }} onClick={() => setShowAuto(true)}>show</button>.</>}</p>
         </div>
         <div className="row">
-          <label className="check"><input type="checkbox" checked={more} onChange={(e) => setMore(e.target.checked)} /> More fields</label>
+          <label className="check"><input type="checkbox" checked={more} onChange={(e) => setMore(e.target.checked)} /> Likes, reach & DMs</label>
           {editable && <button className="btn" onClick={copyPrevious}><Copy /> Copy last counts</button>}
           {editable && <button className="btn btn-primary" onClick={save} disabled={saving || !dirty}><Save /> {saving ? 'Saving…' : 'Save numbers'}</button>}
         </div>
@@ -150,13 +152,14 @@ function SocialSheet({ date }: { date: string }) {
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r) => {
+            {rows.map((r) => {
               const d = draft[r.account_id] || {};
               const change = d.followers && r.previous?.followers !== null && r.previous?.followers !== undefined ? Number(d.followers) - r.previous.followers : null;
               return (
                 <tr key={r.account_id}>
                   <td style={{ minWidth: 190 }}>
                     <AccountLabel a={{ id: r.account_id, brand: r.brand, username: r.username, color: r.color }} />
+                    <div className="row" style={{ gap: 4, marginTop: 2 }}><PlatformChip id={r.platform} small />{r.sync_enabled && <span className="badge badge-good">Auto</span>}</div>
                     {change !== null && <div className={`num ${tone(change)}`} style={{ fontSize: 12.5, marginTop: 2 }}>{signed(change)} since {prettyDate(r.previous!.date, { day: 'numeric', month: 'short' })}</div>}
                   </td>
                   {cols.map(([f, l]) => {
