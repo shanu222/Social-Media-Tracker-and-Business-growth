@@ -39,7 +39,7 @@ export default function Login() {
         <form onSubmit={submit}>
           <div>
             <h1 style={{ fontSize: 26 }}>Sign in to Growth Desk</h1>
-            <p className="muted" style={{ marginTop: 6 }}>Use the account your admin created for you.</p>
+            <p className="muted" style={{ marginTop: 6 }}>Sign in with your work account.</p>
           </div>
           <div className="field">
             <label htmlFor="email">Email</label>

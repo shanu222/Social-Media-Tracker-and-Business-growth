@@ -33,7 +33,7 @@ router.post(
     const exists = await one('SELECT 1 FROM users WHERE lower(email) = lower($1)', [body.email]);
     if (exists) return res.status(409).json({ error: 'A user with this email already exists.' });
     const user = await one(
-      'INSERT INTO users (email, notify_email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,$5,TRUE) RETURNING id, email, notify_email, name, role, active, created_at',
+      'INSERT INTO users (email, notify_email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,$5,$4 = \'admin\') RETURNING id, email, notify_email, name, role, active, created_at',
       [body.email.toLowerCase(), body.notify_email ? body.notify_email.toLowerCase() : null, body.name, body.role, await bcrypt.hash(body.password, 12)]
     );
     await audit(req, 'user.created', 'user', user.id, { email: user.email, role: user.role });
@@ -74,7 +74,7 @@ router.patch(
          notify_email = CASE WHEN $9::boolean THEN nullif($10, '') ELSE notify_email END
        WHERE id = $1 RETURNING id, email, notify_email, name, role, active, last_login_at, created_at, must_change_password`,
       [id, body.name ?? current.name, body.role ?? current.role, body.active ?? current.active, hash, bump,
-        (body.email ?? current.email).toLowerCase(), Boolean(body.password) && id !== req.user.id,
+        (body.email ?? current.email).toLowerCase(), Boolean(body.password) && id !== req.user.id && (body.role ?? current.role) === 'admin',
         body.notify_email !== undefined, body.notify_email ? body.notify_email.toLowerCase() : null]
     );
     await audit(req, 'user.updated', 'user', id, { ...body, password: body.password ? '(reset)' : undefined });

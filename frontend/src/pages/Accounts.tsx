@@ -24,7 +24,7 @@ export default function Accounts() {
       <div className="page-head">
         <div>
           <h1>Accounts</h1>
-          <p>The register of every page you manage, with starting numbers. Login emails, notes and API tokens are encrypted and visible only to admins.</p>
+          <p>{can('admin') ? 'The register of every page you manage, with starting numbers. Login emails, notes and API tokens are encrypted and visible only to admins.' : 'Every page you manage, with its latest numbers.'}</p>
         </div>
         <div className="page-actions">
           <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived</label>

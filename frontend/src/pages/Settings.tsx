@@ -34,16 +34,18 @@ export default function Settings() {
     <>
       <div className="page-head"><div><h1>Settings</h1><p>Signed in as {user?.name} ({user?.email}).</p></div></div>
       <div className="stack" style={{ marginBottom: 16 }}>
+        {can('admin') && (
         <form className="panel panel-pad stack" style={{ gap: 12 }} onSubmit={changePw}>
-          <h2><KeyRound size={18} style={{ verticalAlign: -3 }} /> Change password</h2>
-          <div className="field"><label htmlFor="cp">Current password</label><input id="cp" type="password" className="input" required autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} /></div>
-          <div className="field"><label htmlFor="np">New password</label><input id="np" type="password" className="input" required minLength={10} autoComplete="new-password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} /><span className="hint">At least 10 characters, with letters and numbers.</span></div>
-          <div className="field"><label htmlFor="np2">Repeat new password</label><input id="np2" type="password" className="input" required autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} /></div>
-          <div><button className="btn btn-primary">Change password</button></div>
-        </form>
+            <h2><KeyRound size={18} style={{ verticalAlign: -3 }} /> Change password</h2>
+            <div className="field"><label htmlFor="cp">Current password</label><input id="cp" type="password" className="input" required autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} /></div>
+            <div className="field"><label htmlFor="np">New password</label><input id="np" type="password" className="input" required minLength={10} autoComplete="new-password" value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} /><span className="hint">At least 10 characters, with letters and numbers.</span></div>
+            <div className="field"><label htmlFor="np2">Repeat new password</label><input id="np2" type="password" className="input" required autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} /></div>
+            <div><button className="btn btn-primary">Change password</button></div>
+          </form>
+        )}
         <div className="panel panel-pad stack" style={{ gap: 12 }}>
           <h2><ShieldCheck size={18} style={{ verticalAlign: -3 }} /> Security</h2>
-          <p className="muted">All data lives in your private database and storage, never in the code repository. Login emails, private notes and backups are encrypted with AES-256. Accounts lock for 15 minutes after 5 wrong passwords.</p>
+          <p className="muted">{can('admin') ? 'All data lives in your private database and storage, never in the code repository. Login emails, private notes and backups are encrypted with AES-256. Accounts lock for 15 minutes after 5 wrong passwords.' : 'Signed in on a shared or lost device? Sign out everywhere.'}</p>
           <div><button className="btn" onClick={logoutAll}><LogOut /> Sign out on all devices</button></div>
           {can('admin') && <BackupBox />}
           {can('admin') && <Integrations />}
@@ -79,8 +81,7 @@ function EmailPrefs() {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email notifications</h2>
-          <p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders are sent to <b>{current}</b>.
-            {!can('admin') && ' Only the admin can change this address.'}</p>
+          <p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders are sent to <b>{current}</b>.</p>
           {can('admin') && (addr === null
             ? <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setAddr(u.notify_email || '')}>Change notification email</button>
             : (
@@ -379,7 +380,9 @@ function UsersPanel() {
                 <input id="ppw" className="input" required={!!isNew} minLength={editing.password ? 10 : undefined} value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} placeholder={isNew ? '' : 'Leave empty to keep the current password'} autoComplete="off" />
                 <button type="button" className="btn" onClick={() => setEditing({ ...editing, password: tempPassword() })}>Generate</button>
               </div>
-              <span className="hint">{isNew ? 'Share it privately — they must choose their own password at first sign-in.' : 'If you reset it, they must choose a new one at next sign-in.'}</span>
+              <span className="hint">{editing.role === 'admin'
+                ? (isNew ? 'Share it privately — they choose their own password at first sign-in.' : 'They choose a new one at next sign-in.')
+                : (isNew ? 'Share it privately. Only admins can change it later.' : 'The new password works immediately; their other sessions are signed out.')}</span>
             </div>
           </form>
         </Modal>

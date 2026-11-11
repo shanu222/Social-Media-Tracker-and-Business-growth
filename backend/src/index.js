@@ -84,7 +84,7 @@ app.use('/api/auth', authRoutes);
 
 // Everything below needs a signed-in user who has replaced their first password.
 function requireFreshPassword(req, res, next) {
-  if (req.user?.must_change_password) {
+  if (req.user?.must_change_password && req.user.role === 'admin') {
     return res.status(403).json({ error: 'Change your password to continue.', code: 'PASSWORD_CHANGE_REQUIRED' });
   }
   next();
@@ -133,10 +133,10 @@ async function bootstrapManager() {
   const exists = await one('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
   if (exists) return;
   await one(
-    'INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,TRUE) RETURNING id',
+    'INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,FALSE) RETURNING id',
     [email, process.env.MANAGER_NAME || 'Social Media Manager', 'manager', await bcrypt.hash(password, 12)]
   );
-  console.log(`[setup] Created Social Media Manager login ${email} (must change password on first sign-in).`);
+  console.log(`[setup] Created Social Media Manager login ${email}.`);
 }
 
 /** ADMIN_NOTIFY_EMAIL / MANAGER_NOTIFY_EMAIL fill in notification addresses once (UI changes win afterwards). */

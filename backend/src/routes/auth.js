@@ -58,7 +58,7 @@ router.post(
     await audit({ user, ip: req.ip }, 'login.success', 'user', user.id);
     res.json({
       token: signToken(user),
-      user: { id: user.id, email: user.email, name: user.name, role: user.role, must_change_password: user.must_change_password },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password },
     });
   })
 );
@@ -68,7 +68,7 @@ router.get(
   requireAuth,
   ah(async (req, res) => {
     const u = await one('SELECT id, email, name, role, must_change_password, email_notifications, notify_email FROM users WHERE id = $1', [req.user.id]);
-    res.json({ user: u });
+    res.json({ user: { ...u, must_change_password: u.role === 'admin' && u.must_change_password } });
   })
 );
 
@@ -76,6 +76,8 @@ router.post(
   '/change-password',
   requireAuth,
   ah(async (req, res) => {
+    // Passwords are company-controlled: only admins change passwords (their own here, others in Team).
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Not allowed.' });
     const { currentPassword, newPassword } = parse(
       z.object({ currentPassword: z.string().min(1), newPassword: passwordSchema }),
       req.body
@@ -108,7 +110,7 @@ router.patch(
     }), req.body);
     // Changing where emails go is an admin-only setting (managers' addresses are managed by the admin).
     if (b.notify_email !== undefined && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Ask the admin to change where your notifications are sent.' });
+      return res.status(403).json({ error: 'Not allowed.' });
     }
     await query(
       `UPDATE users SET email_notifications = coalesce($2, email_notifications),

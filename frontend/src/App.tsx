@@ -74,7 +74,7 @@ export default function App() {
 
   if (!ready) return <Loading />;
   if (!user) return <Login />;
-  if (user.must_change_password) return <FirstPassword />;
+  if (user.must_change_password && user.role === 'admin') return <FirstPassword />;
   const isAdmin = can('admin');
 
   return (
