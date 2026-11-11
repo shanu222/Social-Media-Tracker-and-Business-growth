@@ -53,6 +53,7 @@ export default function MyWork() {
             <h3>{p.name}</h3>
             <div className="row" style={{ gap: 6 }}>
               <span className="badge badge-info">{p.open_tasks} open</span>
+              {p.account_count === 0 && <span className="badge badge-warn" title="The admin hasn't added this product's social accounts yet">No accounts yet</span>}
               {p.overdue_tasks > 0 && <span className="badge badge-bad">{p.overdue_tasks} overdue</span>}
               {p.unread > 0 && <span className="badge badge-warn" onClick={(e) => { e.preventDefault(); nav(`/products/${p.id}?tab=chat`); }}><MessageSquare size={12} /> {p.unread}</span>}
             </div>

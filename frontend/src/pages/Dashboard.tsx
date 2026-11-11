@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Flame } from 'lucide-react';
+import { ArrowRight, Flame, AlertTriangle } from 'lucide-react';
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useData, Loading, ErrorBox, fmt, signed, tone, prettyDate, AccountLabel, Stars, compact, useAuth } from '../lib';
 
@@ -36,7 +36,8 @@ function Delta({ cur, prev, suffix = '' }: { cur: number | null; prev: number | 
 export default function Dashboard() {
   const [days, setDays] = useState(30);
   const { data, error, loading, reload } = useData<Dash>(`/dashboard?days=${days}`);
-  const { user } = useAuth();
+  const products = useData<{ id: number; name: string; account_count: number }[]>('/products');
+  const { user, can } = useAuth();
 
   const chart = useMemo(() => {
     if (!data) return [];
@@ -99,7 +100,17 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!hasAccounts && (
+      {can('admin') && (products.data || []).some((p) => p.account_count === 0) && (
+        <div className="notice" style={{ marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <AlertTriangle />
+          <span style={{ flex: 1 }}><b>These products have no social accounts yet:</b>{' '}
+            {(products.data || []).filter((p) => p.account_count === 0).map((p, i, arr) => (
+              <span key={p.id}><Link to={`/products/${p.id}?add=account`}>{p.name}</Link>{i < arr.length - 1 ? ', ' : ''}</span>
+            ))}. Add them so their growth is tracked.
+          </span>
+        </div>
+      )}
+      {!hasAccounts && can('admin') && (
         <div className="panel empty" style={{ marginBottom: 16 }}>
           <h3>Add your first social account</h3>
           <p>Once accounts are registered, daily numbers and growth show up here.</p>

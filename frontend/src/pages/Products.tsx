@@ -20,10 +20,10 @@ export function ProductCover({ p }: { p: { name: string; color: string | null; i
 
 export default function Products() {
   const { can } = useAuth();
+  const nav = useNavigate();
   const [archived, setArchived] = useState(false);
   const { data, error, loading, reload } = useData<ProductRow[]>(`/products?archived=${archived}`);
   const [creating, setCreating] = useState(false);
-  const nav = useNavigate();
 
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox error={error || ''} retry={reload} />;
@@ -60,9 +60,15 @@ export default function Products() {
                   {p.tagline && <p className="muted" style={{ fontSize: 13.5, marginTop: 2 }}>{p.tagline}</p>}
                 </div>
                 <div className="row" style={{ gap: 6 }}>
+                  {p.account_count === 0 && <span className="badge badge-warn">No accounts yet</span>}
                   {p.overdue_tasks > 0 && <span className="badge badge-bad">{p.overdue_tasks} overdue</span>}
                   {p.members.length > 0 ? <span className="faint" style={{ fontSize: 12.5 }}>Managed by {p.members.map((m) => m.name).join(', ')}</span> : <span className="faint" style={{ fontSize: 12.5 }}>No manager assigned</span>}
                 </div>
+                {p.account_count === 0 && can('admin') && (
+                  <button className="btn btn-sm btn-primary" style={{ alignSelf: 'flex-start' }} onClick={(e) => { e.preventDefault(); nav(`/products/${p.id}?add=account`); }}>
+                    <Plus size={14} /> Add accounts
+                  </button>
+                )}
                 <div className="prod-stats">
                   <div><b>{compact(p.followers)}</b><span>followers</span></div>
                   <div><b>{p.open_tasks}</b><span>to post</span></div>

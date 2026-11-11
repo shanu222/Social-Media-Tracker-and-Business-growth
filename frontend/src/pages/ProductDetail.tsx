@@ -67,6 +67,7 @@ export default function ProductDetail() {
           {p.tagline && <p className="muted" style={{ marginTop: 3 }}>{p.tagline}</p>}
           <div className="row" style={{ marginTop: 8, gap: 8 }}>
             {data.members.length ? data.members.map((m) => <span key={m.id} className="badge">{m.name}</span>) : <span className="badge badge-warn">No manager assigned</span>}
+            {data.accounts.length === 0 && <span className="badge badge-warn">No accounts yet</span>}
             {p.website_url && <a href={p.website_url} target="_blank" rel="noreferrer noopener" className="badge badge-info" style={{ textDecoration: 'none' }}><ExternalLink size={12} /> Website</a>}
           </div>
         </div>
@@ -112,7 +113,7 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
   const toast = useToast();
   const [syncing, setSyncing] = useState<number | null>(null);
   const [params, setParams] = useSearchParams();
-  const [addingAccount, setAddingAccount] = useState(params.get('add') === 'account');
+  const [addingAccount, setAddingAccount] = useState(params.get('add') === 'account' && can('admin'));
   const closeAdd = () => { setAddingAccount(false); if (params.get('add')) { params.delete('add'); setParams(params, { replace: true }); } };
   const totalFollowers = ws.accounts.reduce((s, a) => s + (a.followers ?? a.baseline_followers ?? 0), 0);
   const weekGain = ws.accounts.reduce((s, a) => s + (a.followers !== null && a.week_ago_followers !== null ? a.followers - a.week_ago_followers : 0), 0);
@@ -136,7 +137,16 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
           <h2>Social media accounts</h2>
           {can('admin') && <button className="btn btn-sm" onClick={() => setAddingAccount(true)}><Plus size={14} /> Add account</button>}
         </div>
-        {ws.accounts.length === 0 ? <p className="muted">No accounts linked yet. {can('admin') ? 'Add this product\'s Instagram, YouTube, Discord and other pages.' : ''}</p> : (
+        {ws.accounts.length === 0 ? (
+          <div className="notice" style={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}><AlertTriangle />
+              {can('admin')
+                ? <span><b>No social accounts added yet.</b> Add this product's Instagram, YouTube, Facebook and other pages so its growth can be tracked.</span>
+                : <span><b>No social accounts added yet.</b> The admin will add this product's pages. Until then there are no numbers to log for it.</span>}
+            </span>
+            {can('admin') && <button className="btn btn-primary btn-sm" onClick={() => setAddingAccount(true)}><Plus size={14} /> Add account</button>}
+          </div>
+        ) : (
           <div className="acc-grid">
             {ws.accounts.map((a) => {
               const wk = a.followers !== null && a.week_ago_followers !== null ? a.followers - a.week_ago_followers : null;
@@ -188,19 +198,24 @@ const ACTION_TEXT: Record<string, [string, string]> = {
   'task.updated': ['edited content', '#5e6a7c'], 'task.in_progress': ['started working on', '#a86a12'], 'task.done': ['marked as posted', '#0b7a62'],
   'task.todo': ['reopened', '#a86a12'], 'task.cancelled': ['cancelled', '#5e6a7c'], 'task.deleted': ['deleted content', '#b8322a'],
   'post.recorded': ['recorded a published post', '#0b7a62'], 'post.deleted': ['removed a post record', '#b8322a'],
-  'file.uploaded': ['uploaded a file', '#3346b0'], 'file.deleted': ['deleted a file', '#b8322a'], 'file.downloaded': ['downloaded a file', '#8a95a5'],
+  'file.uploaded': ['uploaded a file', '#3346b0'],
+  'link.added': ['added a link', '#3346b0'], 'link.deleted': ['removed a link', '#b8322a'],
+  'task.drafted': ['saved a draft task', '#5e6a7c'], 'task.sent': ['sent a task', '#3346b0'],
+  'task.progress': ['updated progress on', '#2fa585'], 'task.comment': ['commented on', '#3346b0'],
+  'task.clarification': ['asked for clarification on', '#a86a12'], 'ai.suggested': ['asked AI for task ideas', '#7a3fb0'],
+  'account.created': ['added a social account', '#0b7a62'], 'account.synced': ['synced account numbers', '#8a95a5'], 'file.deleted': ['deleted a file', '#b8322a'], 'file.downloaded': ['downloaded a file', '#8a95a5'],
 };
 
 function Activity({ productId, limit }: { productId: number; limit?: number }) {
   const { data, loading } = useData<{ id: number; action: string; detail: Record<string, string> | null; created_at: string; user_name: string | null }[]>(`/products/${productId}/activity`);
   if (loading && !data) return <Loading />;
-  const rows = (data || []).filter((r) => r.action !== 'file.downloaded').slice(0, limit || 200);
+  const rows = (data || []).filter((r) => r.action !== 'file.downloaded' && r.action !== 'account.synced').slice(0, limit || 200);
   if (!rows.length) return <p className="muted">Nothing has happened yet.</p>;
   const body = (
     <div className="timeline">
       {rows.map((r) => {
         const [text, color] = ACTION_TEXT[r.action] || [r.action, '#5e6a7c'];
-        const what = r.detail?.title || r.detail?.name || (r.detail?.platform ? `on ${r.detail.platform}` : '');
+        const what = r.detail?.title || r.detail?.name || r.detail?.brand || (r.detail?.platform ? `on ${r.detail.platform}` : '');
         return (
           <div key={r.id} className="tl-item" style={{ ['--tl' as string]: color }}>
             <div><b>{r.user_name || 'System'}</b> {text}{what && <> — <span>{what}</span></>}</div>
