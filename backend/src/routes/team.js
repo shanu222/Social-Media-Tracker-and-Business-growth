@@ -4,7 +4,7 @@ import { many, one, query } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { notify } from '../notify.js';
-import { emailUser, noticeEmail } from '../mailer.js';
+import { emailUser, emailUserResult, noticeEmail } from '../mailer.js';
 import { ah, parse } from '../util.js';
 import { config } from '../config.js';
 
@@ -69,7 +69,7 @@ router.get('/dm/:userId(\\d+)', ah(async (req, res) => {
   if (!removedPeer && !(await canMessage(req.user, other))) return res.status(404).json({ error: 'Conversation not found.' });
   const after = Number(req.query.after) || 0;
   const rows = await many(
-    `SELECT * FROM (SELECT d.id, d.sender_id, d.recipient_id, d.body, d.important, d.read_at, d.created_at
+    `SELECT * FROM (SELECT d.id, d.sender_id, d.recipient_id, d.body, d.important, d.read_at, d.created_at, d.email_status, d.email_error
        FROM direct_messages d
        WHERE ((d.sender_id = $1 AND d.recipient_id = $2) OR (d.sender_id = $2 AND d.recipient_id = $1)) AND d.id > $3
        ORDER BY d.id DESC LIMIT 300) x ORDER BY id`,
@@ -99,28 +99,39 @@ router.post('/dm/:userId(\\d+)', ah(async (req, res) => {
   const open = await one("SELECT 1 FROM notifications WHERE user_id = $1 AND kind = 'message' AND link = $2 AND read_at IS NULL", [other, link]);
   if (!open) await notify([other], { kind: 'message', title: `${important ? 'Important: ' : ''}New message from ${req.user.name}`, body: b.body, link }, req.user.id);
 
-  // Email: always when important; otherwise at most once per conversation per gap window
-  // Claim the email slot atomically so quick bursts of messages send one email
+  // Email rules:
+  //  - important messages (admin) are always emailed
+  //  - otherwise email when the person has read everything before this message,
+  //    or the last email in this conversation was more than EMAIL_GAP_MIN minutes ago
+  //    (so a burst of unread messages sends one email, not ten)
+  const unreadBefore = await one(
+    'SELECT count(*)::int AS n FROM direct_messages WHERE sender_id = $1 AND recipient_id = $2 AND read_at IS NULL AND id < $3',
+    [req.user.id, other, m.id]
+  );
   const claimed = await one(
     `INSERT INTO dm_email_state (user_id, peer_id, emailed_at) VALUES ($1,$2,now())
      ON CONFLICT (user_id, peer_id) DO UPDATE SET emailed_at = now()
-       WHERE $3 OR dm_email_state.emailed_at < now() - make_interval(mins => $4)
+       WHERE $3 OR $5 OR dm_email_state.emailed_at < now() - make_interval(mins => $4)
      RETURNING emailed_at`,
-    [other, req.user.id, important, EMAIL_GAP_MIN]
+    [other, req.user.id, important, EMAIL_GAP_MIN, unreadBefore.n === 0]
   );
+  let email = { status: 'grouped', error: null };
   if (claimed) {
     const sender = await one('SELECT title FROM users WHERE id = $1', [req.user.id]);
-    emailUser(other, {
+    email = await emailUserResult(other, {
       kind: 'message',
       subject: `${important ? 'Important message' : 'New message'} from ${req.user.name}`,
       ...noticeEmail({
         heading: important ? 'Important message' : 'New message',
         intro: `${req.user.name}${sender?.title ? ` (${sender.title})` : ''} sent you a message.`,
         body: b.body, link, button: 'Open conversation',
-        footer: important ? null : `Further messages in this conversation are grouped for ${EMAIL_GAP_MIN} minutes.`,
+        footer: important ? null : `If more messages arrive before you read this one, they are grouped into one email every ${EMAIL_GAP_MIN} minutes.`,
       }),
-    });
+    }, { important, ref: `dm:${m.id}` });
+    if (!email.ok) await query('DELETE FROM dm_email_state WHERE user_id = $1 AND peer_id = $2', [other, req.user.id]);
   }
+  await query('UPDATE direct_messages SET email_status = $2, email_error = $3 WHERE id = $1', [m.id, email.status, email.error]);
+  m.email_status = email.status; m.email_error = email.error;
   res.status(201).json(m);
 }));
 
@@ -145,7 +156,8 @@ export async function emailAnnouncement(a, userIds, { heading, intro }) {
   if (a.event_at) rows.push([a.kind === 'meeting' ? 'When' : a.kind === 'deadline' ? 'Due' : 'Time', whenText(a.event_at)]);
   if (a.location) rows.push([a.kind === 'meeting' ? 'Where' : 'Details', a.location]);
   for (const u of userIds) {
-    emailUser(u, { kind: `announcement:${a.kind}`, subject: `${heading}: ${a.title}`, ...noticeEmail({ heading, intro, rows: [['Title', a.title], ...rows], body: a.body, link: `/messages?tab=announcements&open=${a.id}`, button: 'View details' }) });
+    // Announcements, meetings, reminders and deadlines are always emailed (not affected by "Email me" being off)
+    emailUserResult(u, { kind: `announcement:${a.kind}`, subject: `${heading}: ${a.title}`, ...noticeEmail({ heading, intro, rows: [['Title', a.title], ...rows], body: a.body, link: `/messages?tab=announcements&open=${a.id}`, button: 'View details' }) }, { important: true, ref: `ann:${a.id}` });
   }
 }
 
@@ -154,7 +166,10 @@ router.get('/announcements', ah(async (req, res) => {
     const rows = await many(
       `SELECT a.*, u.name AS created_by_name,
          count(r.user_id)::int AS recipients, count(r.read_at)::int AS read, count(r.acknowledged_at)::int AS acknowledged,
-         coalesce(json_agg(json_build_object('id', ru.id, 'name', ru.name, 'read_at', r.read_at, 'acknowledged_at', r.acknowledged_at) ORDER BY ru.name) FILTER (WHERE ru.id IS NOT NULL), '[]') AS people,
+         coalesce(json_agg(json_build_object('id', ru.id, 'name', ru.name, 'read_at', r.read_at, 'acknowledged_at', r.acknowledged_at,
+           'email', (SELECT json_build_object('status', l.status, 'error', l.error, 'to', l.to_email, 'at', l.created_at) FROM email_log l
+                     WHERE l.ref = 'ann:' || a.id AND l.user_id = ru.id AND l.kind LIKE 'announcement:%' ORDER BY l.id DESC LIMIT 1))
+           ORDER BY ru.name) FILTER (WHERE ru.id IS NOT NULL), '[]') AS people,
          bool_or(r.user_id = $1) AS to_me, max(CASE WHEN r.user_id = $1 THEN r.acknowledged_at END) AS my_ack
        FROM announcements a
        LEFT JOIN users u ON u.id = a.created_by
@@ -235,6 +250,27 @@ router.delete('/announcements/:id(\\d+)', requireRole('admin'), ah(async (req, r
   res.json({ ok: true });
 }));
 
+/** Admin: send the email again to everyone, or only to people whose email did not go out */
+router.post('/announcements/:id(\\d+)/resend', requireRole('admin'), ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const a = await one('SELECT * FROM announcements WHERE id = $1', [id]);
+  if (!a) return res.status(404).json({ error: 'Not found.' });
+  const onlyFailed = req.body?.onlyFailed !== false;
+  let ids = await annRecipients(id);
+  if (onlyFailed) {
+    const ok = new Set((await many("SELECT DISTINCT user_id FROM email_log WHERE ref = $1 AND status = 'sent' AND kind LIKE 'announcement:%'", [`ann:${id}`])).map((r) => r.user_id));
+    ids = ids.filter((u) => !ok.has(u));
+  }
+  const rows = [['Type', KIND_LABEL[a.kind]]];
+  if (a.event_at) rows.push([a.kind === 'meeting' ? 'When' : 'Time', whenText(a.event_at)]);
+  if (a.location) rows.push([a.kind === 'meeting' ? 'Where' : 'Details', a.location]);
+  const results = await Promise.all(ids.map((u) => emailUserResult(u, {
+    kind: `announcement:${a.kind}`, subject: `${KIND_LABEL[a.kind]}: ${a.title}`,
+    ...noticeEmail({ heading: KIND_LABEL[a.kind], intro: `${req.user.name} sent you this ${a.kind}.`, rows: [['Title', a.title], ...rows], body: a.body, link: `/messages?tab=announcements&open=${a.id}`, button: 'View details' }),
+  }, { important: true, ref: `ann:${a.id}` })));
+  res.json({ attempted: ids.length, sent: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).map((r) => r.error) });
+}));
+
 router.post('/announcements/:id(\\d+)/ack', ah(async (req, res) => {
   const id = Number(req.params.id);
   const r = await one(
@@ -245,7 +281,7 @@ router.post('/announcements/:id(\\d+)/ack', ah(async (req, res) => {
   const a = await one('SELECT * FROM announcements WHERE id = $1', [id]);
   await notify([a.created_by], { kind: 'ack', title: `${req.user.name} confirmed: ${a.title}`, link: `/messages?tab=announcements&open=${id}` }, req.user.id);
   if (a.important || a.kind === 'meeting') {
-    emailUser(a.created_by, { kind: 'ack', subject: `${req.user.name} confirmed: ${a.title}`, ...noticeEmail({ heading: 'Confirmed', intro: `${req.user.name} confirmed "${a.title}".`, link: `/messages?tab=announcements&open=${id}`, button: 'See who confirmed' }) });
+    emailUser(a.created_by, { kind: 'ack', ref: `ann:${id}`, subject: `${req.user.name} confirmed: ${a.title}`, ...noticeEmail({ heading: 'Confirmed', intro: `${req.user.name} confirmed "${a.title}".`, link: `/messages?tab=announcements&open=${id}`, button: 'See who confirmed' }) });
   }
   await audit(req, 'announcement.acknowledged', 'announcement', id);
   res.json(r);

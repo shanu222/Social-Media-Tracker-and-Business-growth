@@ -745,3 +745,13 @@ a.att:hover { filter: brightness(0.97); }
 .notif-tabs button.on { color: var(--ink); border-bottom-color: var(--signal); }
 .notif-tabs .count { min-width: 18px; height: 18px; font-size: 11px; }
 .act-ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.ann-people { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.ann-people ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.ann-people li { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.ann-people .em { display: inline-flex; gap: 4px; align-items: center; padding: 1px 8px; border-radius: 999px; background: #eef2f7; color: var(--muted); }
+.ann-people .em.sent { background: #e7f7f0; color: #0d5a40; }
+.ann-people .em.failed, .ann-people .em.skipped { background: var(--loss-soft); color: var(--loss); }
+.ann-people .btn { align-self: flex-start; }
+.ann-foot { align-items: flex-start; }
+.em-warn { color: #ffd2a8; }
+.bubble:not(.me) .em-warn { color: var(--loss); }

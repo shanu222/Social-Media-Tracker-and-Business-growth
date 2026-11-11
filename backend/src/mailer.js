@@ -64,30 +64,57 @@ async function deliver({ to, subject, html, text }) {
   throw new Error('No email provider configured');
 }
 
-/** Sends one email and records the outcome. Never throws. */
-export async function sendEmail({ to, subject, html, text, kind = null }) {
-  if (!to) return false;
-  if (!emailProvider()) {
-    await query('INSERT INTO email_log (to_email, subject, kind, status, error) VALUES ($1,$2,$3,$4,$5)', [to, subject, kind, 'skipped', 'Email not configured']).catch(() => {});
-    return false;
+/**
+ * Sends one email and records the outcome. Never throws.
+ * Returns { ok, status: 'sent' | 'failed' | 'skipped', error }.
+ */
+export async function sendEmailResult({ to, subject, html, text, kind = null, userId = null, ref = null }) {
+  const log = (status, error = null) =>
+    query('INSERT INTO email_log (to_email, subject, kind, status, error, user_id, ref) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [to || '(none)', subject, kind, status, error, userId, ref]).catch(() => {});
+  if (!to) { await log('skipped', 'No email address'); return { ok: false, status: 'skipped', error: 'No email address' }; }
+  if (!emailProvider()) { await log('skipped', 'Email not configured'); return { ok: false, status: 'skipped', error: 'Email is not set up on the server' }; }
+  let lastErr;
+  // One retry for temporary failures (network, rate limits)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await deliver({ to, subject, html, text });
+      await log('sent');
+      return { ok: true, status: 'sent', error: null };
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 0 && /timeout|ECONN|ETIMEDOUT|429|rate|5\d\d|network|fetch failed/i.test(e.message)) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+      break;
+    }
   }
-  try {
-    await deliver({ to, subject, html, text });
-    await query('INSERT INTO email_log (to_email, subject, kind, status) VALUES ($1,$2,$3,$4)', [to, subject, kind, 'sent']).catch(() => {});
-    return true;
-  } catch (e) {
-    console.error('[email] failed', e.message);
-    await query('INSERT INTO email_log (to_email, subject, kind, status, error) VALUES ($1,$2,$3,$4,$5)', [to, subject, kind, 'failed', e.message.slice(0, 300)]).catch(() => {});
-    return false;
-  }
+  console.error('[email] failed', lastErr.message);
+  await log('failed', lastErr.message.slice(0, 300));
+  return { ok: false, status: 'failed', error: lastErr.message.slice(0, 300) };
 }
 
-/** Email a user by id if they are active and haven't turned emails off. Fire-and-forget safe. */
-export async function emailUser(userId, msg) {
-  // Notifications go to the person's notification email (set by the admin), else their login email.
-  const u = await one('SELECT email, notify_email, name, active, email_notifications FROM users WHERE id = $1', [userId]).catch(() => null);
-  if (!u || !u.active || !u.email_notifications) return false;
-  return sendEmail({ ...msg, to: u.notify_email || u.email });
+export async function sendEmail(msg) {
+  return (await sendEmailResult(msg)).ok;
+}
+
+/**
+ * Email a person by id. Routine emails respect their "Email me" setting; `important: true`
+ * (admin messages marked important, announcements, meetings, reminders, deadlines) is always sent.
+ * Returns { ok, status, error }. Fire-and-forget safe.
+ */
+export async function emailUserResult(userId, msg, { important = false, ref = null } = {}) {
+  const u = await one('SELECT email, notify_email, name, active, email_notifications, deleted_at FROM users WHERE id = $1', [userId]).catch(() => null);
+  if (!u || !u.active || u.deleted_at) return { ok: false, status: 'skipped', error: 'Account not active' };
+  const to = u.notify_email || u.email;
+  if (!u.email_notifications && !important) {
+    await query('INSERT INTO email_log (to_email, subject, kind, status, error, user_id, ref) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [to, msg.subject, msg.kind || null, 'skipped', 'Emails turned off for this person', userId, ref ?? msg.ref ?? null]).catch(() => {});
+    return { ok: false, status: 'skipped', error: 'Emails turned off for this person' };
+  }
+  return sendEmailResult({ ...msg, to, userId, ref: ref ?? msg.ref ?? null });
+}
+
+export async function emailUser(userId, msg, opts) {
+  return (await emailUserResult(userId, msg, opts)).ok;
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

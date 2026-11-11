@@ -461,6 +461,12 @@ CREATE TABLE IF NOT EXISTS announcement_reminders (
 // v5 — KPIs per product: product type, product-scoped metrics, automatic social metrics
 const SCHEMA_V5 = `
 ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+-- Email delivery tracking per person and per message/announcement
+ALTER TABLE email_log ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ref TEXT;
+CREATE INDEX IF NOT EXISTS email_log_ref_idx ON email_log(ref);
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS email_status TEXT;
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS email_error TEXT;
 -- When the admin last looked at Team activity in the bell
 ALTER TABLE users ADD COLUMN IF NOT EXISTS activity_seen_at TIMESTAMPTZ;
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;

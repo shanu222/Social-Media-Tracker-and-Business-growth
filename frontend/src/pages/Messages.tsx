@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, Bell, CalendarClock, CheckCheck, Clock, Flag, Megaphone, MapPin, Pencil, Plus, Send, Trash2, Users, Video, XCircle,
+  AlertCircle, ArrowLeft, Bell, Mail, RefreshCw, CalendarClock, CheckCheck, Clock, Flag, Megaphone, MapPin, Pencil, Plus, Send, Trash2, Users, Video, XCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth, useToast, Loading, Modal, ROLE_LABEL, timeAgo, type Role } from '../lib';
 
 interface Person { id: number; name: string; title: string | null; role: Role; removed?: boolean; unread: number; last_body: string | null; last_at: string | null; last_sender: number | null }
-interface Dm { id: number; sender_id: number; recipient_id: number; body: string; important: boolean; read_at: string | null; created_at: string }
+interface Dm { id: number; sender_id: number; recipient_id: number; body: string; important: boolean; read_at: string | null; created_at: string; email_status?: string | null; email_error?: string | null }
 type Kind = 'announcement' | 'meeting' | 'reminder' | 'deadline';
 interface Ann {
   id: number; kind: Kind; title: string; body: string | null; event_at: string | null; location: string | null; important: boolean;
   created_at: string; cancelled: boolean; created_by_name: string | null; my_ack: string | null;
-  recipients?: number; read?: number; acknowledged?: number; people?: { id: number; name: string; read_at: string | null; acknowledged_at: string | null }[]; to_me?: boolean;
+  recipients?: number; read?: number; acknowledged?: number; people?: { id: number; name: string; read_at: string | null; acknowledged_at: string | null; email?: { status: string; error: string | null; to: string } | null }[]; to_me?: boolean;
 }
 
 const KINDS: Record<Kind, { label: string; icon: typeof Bell; cls: string; ack: string }> = {
@@ -156,7 +156,7 @@ function Thread({ peerId, onBack, onSent }: { peerId: number; onBack: () => void
               <div className={`bubble ${me ? 'me' : ''} ${m.important ? 'imp' : ''}`}>
                 {m.important && <div className="imp-tag"><AlertCircle size={12} /> Important</div>}
                 {m.body}
-                <div className="stamp">{new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{me && m.read_at && <> · <CheckCheck size={12} /> Seen</>}</div>
+                <div className="stamp">{new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{me && <EmailMark m={m} />}{me && m.read_at && <> · <CheckCheck size={12} /> Seen</>}</div>
               </div>
             </div>
           );
@@ -192,6 +192,13 @@ function Announcements({ people, onBack, onRead }: { people: Person[]; onBack: (
 
   async function ack(a: Ann) {
     try { await api.post(`/team/announcements/${a.id}/ack`, {}); toast('Confirmed'); load(); } catch (e) { toast((e as Error).message, true); }
+  }
+  async function resend(a: Ann) {
+    try {
+      const r = await api.post<{ attempted: number; sent: number; failed: string[] }>(`/team/announcements/${a.id}/resend`, { onlyFailed: true });
+      toast(r.failed.length ? `Sent ${r.sent} of ${r.attempted}. ${r.failed[0]}` : `Email sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}`, r.failed.length > 0);
+      load();
+    } catch (e) { toast((e as Error).message, true); }
   }
   async function cancel(a: Ann) {
     if (!window.confirm(`Cancel "${a.title}"? Everyone who received it is notified.`)) return;
@@ -260,9 +267,21 @@ function Announcements({ people, onBack, onRead }: { people: Person[]; onBack: (
               <div className="row ann-foot">
                 {can('admin') && a.recipients !== undefined ? (
                   <>
-                    <span className="faint small" title={(a.people || []).map((p) => `${p.name}: ${p.acknowledged_at ? 'confirmed' : p.read_at ? 'seen' : 'not seen'}`).join('\n')}>
-                      <Users size={13} style={{ verticalAlign: -2 }} /> {a.recipients} people · seen {a.read} · confirmed {a.acknowledged}
-                    </span>
+                    <div className="ann-people">
+                      <span className="faint small"><Users size={13} style={{ verticalAlign: -2 }} /> {a.recipients} {a.recipients === 1 ? 'person' : 'people'} · seen {a.read} · confirmed {a.acknowledged}</span>
+                      <ul>
+                        {(a.people || []).map((p) => (
+                          <li key={p.id}>
+                            <b>{p.name}</b>
+                            <span className={`em ${p.email?.status || 'pending'}`} title={p.email?.error || p.email?.to || ''}>
+                              <Mail size={12} /> {!p.email ? 'Sending…' : p.email.status === 'sent' ? `Emailed to ${p.email.to}` : p.email.status === 'failed' ? `Email failed: ${p.email.error}` : `Not emailed: ${p.email.error}`}
+                            </span>
+                            <span className="faint">{p.acknowledged_at ? 'Confirmed' : p.read_at ? 'Seen' : 'Not opened yet'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {(a.people || []).some((p) => p.email && p.email.status !== 'sent') && <button className="btn btn-sm" onClick={() => resend(a)}><RefreshCw size={13} /> Resend email</button>}
+                    </div>
                     <span style={{ marginLeft: 'auto' }} className="row">
                       {!a.cancelled && <button className="btn btn-sm" onClick={() => setEditing(a)}><Pencil size={13} /> Edit</button>}
                       {!a.cancelled && a.event_at && <button className="btn btn-sm" onClick={() => cancel(a)}><XCircle size={13} /> Cancel</button>}
@@ -371,4 +390,12 @@ export function UpcomingStrip() {
       })}
     </div>
   );
+}
+
+/** Under a sent message: did the email go out? */
+function EmailMark({ m }: { m: Dm }) {
+  if (!m.email_status) return null;
+  if (m.email_status === 'sent') return <> · <Mail size={11} /> Emailed</>;
+  if (m.email_status === 'grouped') return <span title="An email about this conversation went out recently and hasn't been read yet, so this message is grouped with it."> · <Mail size={11} /> Grouped</span>;
+  return <span className="em-warn" title={m.email_error || ''}> · <AlertCircle size={11} /> {m.email_status === 'failed' ? 'Email failed' : 'Not emailed'}{m.email_error ? `: ${m.email_error}` : ''}</span>;
 }

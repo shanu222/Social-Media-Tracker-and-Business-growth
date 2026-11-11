@@ -95,7 +95,7 @@ function EmailPrefs() {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <h2><Mail size={18} style={{ verticalAlign: -3 }} /> Email notifications</h2>
-          <p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders are sent to <b>{current}</b>.</p>
+          <p className="muted" style={{ marginTop: 4 }}>New tasks, changes, comments, completions and deadline reminders are sent to <b>{current}</b>. Announcements, meetings and important messages are always emailed.</p>
           {can('admin') && (addr === null
             ? <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setAddr(u.notify_email || '')}>Change notification email</button>
             : (
@@ -311,7 +311,7 @@ function BackupBox() {
   );
 }
 
-interface PersonForm { id?: number; name: string; title: string; can_message_team: boolean; email: string; notify_email: string; role: Role; password: string; active?: boolean }
+interface PersonForm { id?: number; name: string; title: string; can_message_team: boolean; email_notifications: boolean; email: string; notify_email: string; role: Role; password: string; active?: boolean }
 
 function UsersPanel() {
   const toast = useToast();
@@ -330,7 +330,7 @@ function UsersPanel() {
     try {
       if (editing.id) {
         const cur = data!.find((u) => u.id === editing.id)!;
-        const body: Record<string, unknown> = { name: editing.name, notify_email: editing.notify_email.trim(), title: editing.title.trim(), can_message_team: editing.can_message_team };
+        const body: Record<string, unknown> = { name: editing.name, notify_email: editing.notify_email.trim(), title: editing.title.trim(), can_message_team: editing.can_message_team, email_notifications: editing.email_notifications };
         if (editing.email.trim().toLowerCase() !== cur.email) body.email = editing.email.trim();
         if (editing.id !== user?.id && editing.role !== cur.role) body.role = editing.role;
         if (editing.password) body.password = editing.password;
@@ -367,7 +367,7 @@ function UsersPanel() {
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head">
         <div><h2>Team</h2><p>Each person signs in with their login email. Notifications go to their notification email (or the login email if none is set).</p></div>
-        <button className="btn btn-primary" onClick={() => setEditing({ name: '', title: '', can_message_team: false, email: '', notify_email: '', role: 'manager', password: tempPassword() })}><Plus /> Add person</button>
+        <button className="btn btn-primary" onClick={() => setEditing({ name: '', title: '', can_message_team: false, email_notifications: true, email: '', notify_email: '', role: 'manager', password: tempPassword() })}><Plus /> Add person</button>
       </div>
       <div className="table-wrap" style={{ padding: 8 }}>
         <table className="t">
@@ -377,12 +377,12 @@ function UsersPanel() {
               <td><b>{u.name}</b>{u.id === user?.id && <span className="faint"> (you)</span>}</td>
               <td>{u.title || <span className="faint">—</span>}</td>
               <td className="muted">{u.email}</td>
-              <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge">Emails off</span></div>}</td>
+              <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge badge-warn">Emails off</span></div>}</td>
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
               <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
+                <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email_notifications: u.email_notifications !== false, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => toggleActive(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost btn-danger" onClick={() => setRemoving(u)} aria-label={`Remove ${u.name}`}><Trash2 size={14} /> Remove</button>}
               </td>
@@ -438,6 +438,9 @@ function UsersPanel() {
             </div>
             <div className="field"><label htmlFor="pem">Login email</label><input id="pem" type="email" className="input" required value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} /><span className="hint">Used to sign in.</span></div>
             <div className="field"><label htmlFor="pne">Notification email</label><input id="pne" type="email" className="input" value={editing.notify_email} onChange={(e) => setEditing({ ...editing, notify_email: e.target.value })} placeholder="Same as login email" /><span className="hint">Tasks, reminders and replies are sent here.</span></div>
+            {!isNew && (
+              <label className="check full"><input type="checkbox" checked={editing.email_notifications} onChange={(e) => setEditing({ ...editing, email_notifications: e.target.checked })} /> Email notifications (tasks, comments, deadline reminders). Announcements, meetings and important messages are always emailed.</label>
+            )}
             {editing.role !== 'admin' && (
               <label className="check full"><input type="checkbox" checked={editing.can_message_team} onChange={(e) => setEditing({ ...editing, can_message_team: e.target.checked })} /> Can message other team members (admins can always be messaged)</label>
             )}

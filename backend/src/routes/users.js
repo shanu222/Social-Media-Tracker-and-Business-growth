@@ -58,6 +58,7 @@ router.patch(
         role: role.optional(),
         title: z.string().trim().max(100).optional(),
         can_message_team: z.boolean().optional(),
+        email_notifications: z.boolean().optional(),
         active: z.boolean().optional(),
         password: passwordSchema.optional(),
       }),
@@ -80,12 +81,13 @@ router.patch(
          must_change_password = CASE WHEN $8 THEN TRUE ELSE must_change_password END,
          notify_email = CASE WHEN $9::boolean THEN nullif($10, '') ELSE notify_email END,
          title = CASE WHEN $11::boolean THEN nullif($12, '') ELSE title END,
-         can_message_team = coalesce($13, can_message_team)
-       WHERE id = $1 RETURNING id, email, notify_email, name, title, can_message_team, role, active, last_login_at, created_at, must_change_password`,
+         can_message_team = coalesce($13, can_message_team),
+         email_notifications = coalesce($14, email_notifications)
+       WHERE id = $1 RETURNING id, email, notify_email, email_notifications, name, title, can_message_team, role, active, last_login_at, created_at, must_change_password`,
       [id, body.name ?? current.name, body.role ?? current.role, body.active ?? current.active, hash, bump,
         (body.email ?? current.email).toLowerCase(), Boolean(body.password) && id !== req.user.id && (body.role ?? current.role) === 'admin',
         body.notify_email !== undefined, body.notify_email ? body.notify_email.toLowerCase() : null,
-        body.title !== undefined, body.title ?? null, body.can_message_team ?? null]
+        body.title !== undefined, body.title ?? null, body.can_message_team ?? null, body.email_notifications ?? null]
     );
     await audit(req, 'user.updated', 'user', id, { ...body, password: body.password ? '(reset)' : undefined });
     res.json(user);
