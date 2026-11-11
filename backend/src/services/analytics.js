@@ -27,27 +27,55 @@ function aggregate(entries, aggregation) {
   return aggregation === 'avg' ? sum / entries.length : sum;
 }
 
-export async function businessMetrics(start, end) {
-  const metrics = await many('SELECT * FROM metrics WHERE active = TRUE ORDER BY position, id');
+/**
+ * Metric values for a period. scope: undefined = every active metric, 'company' = company-wide only,
+ * a product id = that product's metrics. Social metrics (source <> 'manual') are calculated from the
+ * product's linked accounts; everything else comes from daily entries.
+ */
+export async function businessMetrics(start, end, scope, { manualOnly = false } = {}) {
+  const where = (scope === 'company' ? 'AND m.product_id IS NULL' : Number.isInteger(scope) ? 'AND m.product_id = $1' : '') + (manualOnly ? " AND m.source = 'manual'" : '');
+  const metrics = await many(
+    `SELECT m.*, p.name AS product_name FROM metrics m LEFT JOIN products p ON p.id = m.product_id
+     WHERE m.active = TRUE AND (m.product_id IS NULL OR p.archived = FALSE) ${where}
+     ORDER BY p.name NULLS FIRST, m.position, m.id`,
+    Number.isInteger(scope) ? [scope] : []
+  );
   const entries = await many(
     'SELECT metric_id, date, value FROM metric_entries WHERE date BETWEEN $1 AND $2 ORDER BY date',
     [start, end]
   );
+  let social = null;
+  if (metrics.some((m) => m.source && m.source !== 'manual')) {
+    const sum = await growthSummary(start, end);
+    social = new Map();
+    for (const a of sum.accounts) {
+      if (!a.product_id) continue;
+      const g = social.get(a.product_id) || { followers_gained: 0, posts: 0, reach: 0, eng: 0, n: 0 };
+      g.followers_gained += a.net_change || 0; g.posts += a.posts_added || 0; g.reach += a.reach || 0;
+      g.eng += (a.likes || 0) + (a.comments || 0) + (a.shares || 0); g.n++;
+      social.set(a.product_id, g);
+    }
+  }
   return metrics.map((m) => {
+    if (m.source && m.source !== 'manual') {
+      const g = social?.get(m.product_id);
+      const value = !g ? null : m.source === 'engagement_rate' ? (g.reach ? round((g.eng / g.reach) * 100, 2) : null) : g[m.source];
+      return { ...m, value, entries: null, auto: true };
+    }
     const own = entries.filter((e) => e.metric_id === m.id);
-    return { ...m, value: round(aggregate(own, m.aggregation), 2), entries: own.length };
+    return { ...m, value: round(aggregate(own, m.aggregation), 2), entries: own.length, auto: false };
   });
 }
 
 /** Monthly KPI sheet: target vs actual vs previous month. */
-export async function monthlyKpis(month) {
+export async function monthlyKpis(month, scope) {
   const { start, end } = monthRange(month);
   const [y, mo] = month.split('-').map(Number);
   const prevMonth = new Date(Date.UTC(y, mo - 2, 1)).toISOString().slice(0, 7);
   const prev = monthRange(prevMonth);
   const [cur, last, targets] = await Promise.all([
-    businessMetrics(start, end),
-    businessMetrics(prev.start, prev.end),
+    businessMetrics(start, end, scope),
+    businessMetrics(prev.start, prev.end, scope),
     many('SELECT * FROM metric_targets WHERE month = $1', [month]),
   ]);
   const tmap = new Map(targets.map((t) => [t.metric_id, t]));

@@ -24,7 +24,10 @@ async function buildReportData(kind, start, end, month) {
     ]);
     kpis = cur.map((m) => ({ ...m, previous: prev.find((p) => p.id === m.id)?.value ?? null, target: null, status: null }));
   }
-  kpis = kpis.filter((k) => k.value !== null || k.target !== null);
+  // Manual metrics with data, and automatic social metrics only where a target was set; label with the product
+  kpis = kpis
+    .filter((k) => (k.auto ? k.target !== null : k.value !== null || k.target !== null))
+    .map((k) => ({ ...k, name: k.product_name ? `${k.product_name} · ${k.name}` : k.name }));
 
   let reviews = [], summaryText = null;
   const actionMonth = month || end.slice(0, 7);

@@ -89,16 +89,17 @@ const PRODUCT_COLORS = ['#0b7f66', '#1a5fe0', '#c0562a', '#7a3fb0', '#b03a6b', '
 export const colorFor = (name: string) => PRODUCT_COLORS[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % PRODUCT_COLORS.length];
 
 export function ProductForm({ product, onClose, onSaved }: {
-  product?: { id: number; name: string; tagline: string | null; description: string | null; website_url: string | null; color: string | null; archived?: boolean; memberIds?: number[] };
+  product?: { id: number; name: string; tagline: string | null; description: string | null; website_url: string | null; color: string | null; archived?: boolean; memberIds?: number[]; category?: string | null };
   onClose: () => void; onSaved: (id: number) => void;
 }) {
   const toast = useToast();
   const users = useData<(User & { active: boolean })[]>('/users');
   const team = (users.data || []).filter((u) => u.active && u.role !== 'admin');
+  const types = useData<{ id: string; label: string; hint: string }[]>('/metrics/types');
   const [f, setF] = useState({
     name: product?.name || '', tagline: product?.tagline || '', description: product?.description || '',
     website_url: product?.website_url || '', color: product?.color || '', member_ids: product?.memberIds || ([] as number[]),
-    archived: product?.archived || false,
+    archived: product?.archived || false, category: product?.category || '',
   });
   const [picked, setPicked] = useState(Boolean(product));
   const [more, setMore] = useState(false);
@@ -110,7 +111,7 @@ export function ProductForm({ product, onClose, onSaved }: {
     e.preventDefault();
     setBusy(true);
     const website = f.website_url.trim() && !/^https?:\/\//i.test(f.website_url.trim()) ? `https://${f.website_url.trim()}` : f.website_url.trim();
-    const body = { ...f, website_url: website, color: f.color || colorFor(f.name) };
+    const body = { ...f, website_url: website, color: f.color || colorFor(f.name), category: f.category || null };
     try {
       const r = product ? await api.put<{ id: number }>(`/products/${product.id}`, body) : await api.post<{ id: number }>('/products', body);
       toast(product ? 'Product updated' : `${f.name} created — now add its social accounts`);
@@ -126,6 +127,13 @@ export function ProductForm({ product, onClose, onSaved }: {
         <div className="field"><label htmlFor="pn">Product name</label><input id="pn" className="input" required autoFocus={!product} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. NET360" /></div>
         <div className="field"><label htmlFor="pw">Website <span className="faint">(optional)</span></label><input id="pw" className="input" value={f.website_url} onChange={(e) => setF({ ...f, website_url: e.target.value })} placeholder="example.com" /></div>
         <div className="field full"><label htmlFor="pt">What is it, in one line? <span className="faint">(optional)</span></label><input id="pt" className="input" value={f.tagline} onChange={(e) => setF({ ...f, tagline: e.target.value })} placeholder="e.g. NUST entry test preparation app" /></div>
+        <div className="field full"><label htmlFor="pty">Type of product</label>
+          <select id="pty" className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
+            {!product && <option value="">Detect from the name and website</option>}
+            {(types.data || []).map((t) => <option key={t.id} value={t.id}>{t.label} — {t.hint}</option>)}
+          </select>
+          <span className="hint">Decides the KPIs suggested for this product on Targets & KPIs.</span>
+        </div>
         {team.length > 0 && (
           <div className="field full">
             <label>Who manages it</label>

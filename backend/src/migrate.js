@@ -458,6 +458,16 @@ CREATE TABLE IF NOT EXISTS announcement_reminders (
 );
 `;
 
+// v5 — KPIs per product: product type, product-scoped metrics, automatic social metrics
+const SCHEMA_V5 = `
+ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE metrics DROP CONSTRAINT IF EXISTS metrics_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS metrics_scope_name ON metrics ((coalesce(product_id, 0)), (lower(name)));
+CREATE INDEX IF NOT EXISTS metrics_product_idx ON metrics(product_id);
+`;
+
 // Default checklist (from the original Social Media Tracker sheet). No account
 // data, credentials or personal info is seeded — that lives only in the database.
 const DEFAULT_TASKS = [
@@ -511,6 +521,7 @@ export async function migrate() {
     await client.query(SCHEMA_V2);
     await client.query(SCHEMA_V3);
     await client.query(SCHEMA_V4);
+    await client.query(SCHEMA_V5);
     const { rows: t } = await client.query('SELECT count(*)::int AS n FROM checklist_tasks');
     if (t[0].n === 0) {
       for (const [i, [title, scope, frequency]] of DEFAULT_TASKS.entries()) {

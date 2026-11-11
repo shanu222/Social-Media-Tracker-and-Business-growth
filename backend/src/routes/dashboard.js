@@ -18,8 +18,8 @@ router.get('/', ah(async (req, res) => {
       growthSummary(start, end),
       checklistCompletion(start, end),
       growthSummary(prevStart, prevEnd),
-      businessMetrics(start, end),
-      businessMetrics(prevStart, prevEnd),
+      businessMetrics(start, end, undefined, { manualOnly: true }),
+      businessMetrics(prevStart, prevEnd, undefined, { manualOnly: true }),
       one('SELECT count(DISTINCT account_id)::int AS n FROM snapshots WHERE date = $1', [end]),
       one(
         `SELECT count(*)::int AS total,
@@ -68,13 +68,13 @@ router.get('/', ah(async (req, res) => {
   const month = end.slice(0, 7);
   const months = [];
   for (let k = 5; k >= 0; k--) { const [y, mo] = month.split('-').map(Number); months.push(new Date(Date.UTC(y, mo - 1 - k, 1)).toISOString().slice(0, 7)); }
-  const monthly = await Promise.all(months.map((m) => { const r = monthRange(m); return businessMetrics(r.start, r.end); }));
-  const businessTrend = (monthly[0] || []).map((m) => ({
-    id: m.id, name: m.name, unit: m.unit, higher_is_better: m.higher_is_better,
+  const monthly = await Promise.all(months.map((m) => { const r = monthRange(m); return businessMetrics(r.start, r.end, undefined, { manualOnly: true }); }));
+  const businessTrend = (monthly[0] || []).filter((m) => !m.auto).map((m) => ({
+    id: m.id, name: m.product_name ? `${m.product_name} · ${m.name}` : m.name, unit: m.unit, higher_is_better: m.higher_is_better,
     points: months.map((mo, i) => ({ month: mo, value: monthly[i].find((x) => x.id === m.id)?.value ?? null })),
   })).filter((m) => m.points.some((p) => p.value !== null));
   const goals = (await monthlyKpis(month)).filter((k) => k.target !== null && k.target !== undefined)
-    .map((k) => ({ id: k.id, name: k.name, unit: k.unit, value: k.value, target: k.target, higher_is_better: k.higher_is_better }));
+    .map((k) => ({ id: k.id, name: k.product_name ? `${k.product_name} · ${k.name}` : k.name, unit: k.unit, value: k.value, target: k.target, higher_is_better: k.higher_is_better }));
 
   res.json({
     range: { start, end, days },

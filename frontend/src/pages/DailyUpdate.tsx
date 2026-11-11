@@ -197,7 +197,11 @@ function BusinessSheet({ date }: { date: string }) {
   const { can } = useAuth();
   const toast = useToast();
   const editable = can('manager');
-  const { data, error, loading, reload } = useData<{ date: string; rows: MetricRow[] }>(`/metrics/day?date=${date}`);
+  const [params, setParams] = useSearchParams();
+  const scope = params.get('bscope') || 'company';
+  const scopes = useData<{ id: number | 'company'; name: string; typeLabel: string; metrics: number }[]>('/metrics/scopes');
+  const { data, error, loading, reload } = useData<{ date: string; rows: MetricRow[] }>(`/metrics/day?date=${date}&scope=${scope}`);
+  const pick = (id: string) => { const n = new URLSearchParams(params); if (id === 'company') n.delete('bscope'); else n.set('bscope', id); setParams(n, { replace: true }); };
   const [vals, setVals] = useState<Record<number, { value: string; note: string }>>({});
   const [saving, setSaving] = useState(false);
 
@@ -236,10 +240,14 @@ function BusinessSheet({ date }: { date: string }) {
       <div className="panel-head">
         <div>
           <h2>Business numbers for {prettyDate(date, { day: 'numeric', month: 'long' })}</h2>
-          <p>Log what happened today. Monthly totals and targets are on <Link to="/kpis">Targets & KPIs</Link>, where you can also add your own metrics.</p>
+          <p>Choose a product and enter today's numbers. Social media numbers fill in from the accounts. Targets are on <Link to={`/kpis${scope !== 'company' ? `?scope=${scope}` : ''}`}>Targets & KPIs</Link>.</p>
         </div>
-        {editable && <button className="btn btn-primary" onClick={save} disabled={saving}><Save /> {saving ? 'Saving…' : 'Save numbers'}</button>}
+        {editable && <button className="btn btn-primary" onClick={save} disabled={saving || !data.rows.length}><Save /> {saving ? 'Saving…' : 'Save numbers'}</button>}
       </div>
+      <div className="biz-scope" role="tablist" aria-label="Product" style={{ paddingTop: 12 }}>
+        {(scopes.data || []).map((s) => <button key={s.id} role="tab" aria-selected={String(s.id) === scope} className={String(s.id) === scope ? 'on' : ''} onClick={() => pick(String(s.id))}>{s.name}</button>)}
+      </div>
+      {data.rows.length === 0 && <p className="muted" style={{ padding: '16px 20px' }}>No numbers to enter by hand for this product.</p>}
       <div className="grid cols-2" style={{ padding: 20 }}>
         {groups.map((g) => (
           <div key={g}>
@@ -249,7 +257,7 @@ function BusinessSheet({ date }: { date: string }) {
                 <div key={m.id} className="row" style={{ flexWrap: 'nowrap' }}>
                   <label htmlFor={`m${m.id}`} style={{ flex: 1, minWidth: 0 }}>
                     {m.name}
-                    <div className="faint" style={{ fontSize: 12 }}>{m.aggregation === 'last' ? 'Current total' : 'Count for today'}{m.unit ? ` · ${m.unit}` : ''}</div>
+                    <div className="faint" style={{ fontSize: 12 }}>{m.aggregation === 'last' ? 'Current total' : m.aggregation === 'avg' ? "Today's value" : 'Count for today'}{m.unit ? ` · ${m.unit}` : ''}</div>
                   </label>
                   <input
                     id={`m${m.id}`}

@@ -10,6 +10,7 @@ import { requireProductAccess, productIdsFor } from '../access.js';
 import { notify } from '../notify.js';
 import { storageEnabled, putObject, deleteObject, signedViewUrl } from '../storage.js';
 import { ah, parse, today, addDays } from '../util.js';
+import { PRODUCT_TYPES, guessType, setupProductKpis } from '../services/kpiTemplates.js';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ const productSchema = z.object({
   description: z.string().max(8000).nullish(),
   website_url: z.string().trim().url().max(500).or(z.literal('')).nullish(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullish(),
+  category: z.enum(Object.keys(PRODUCT_TYPES)).nullish(),
   member_ids: z.array(z.number().int().positive()).max(50).optional(),
 });
 
@@ -53,9 +55,11 @@ router.post('/', requireRole('admin'), ah(async (req, res) => {
   const b = parse(productSchema, req.body);
   const p = await tx(async (c) => {
     const { rows } = await c.query(
-      'INSERT INTO products (name, tagline, description, website_url, color, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [b.name, b.tagline || null, b.description || null, b.website_url || null, b.color || null, req.user.id]
+      'INSERT INTO products (name, tagline, description, website_url, color, created_by, category) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [b.name, b.tagline || null, b.description || null, b.website_url || null, b.color || null, req.user.id, b.category || guessType(b)]
     );
+    // Every new product starts with the KPI set that fits its type
+    await setupProductKpis(c, rows[0].id, rows[0].category);
     for (const uid of b.member_ids || []) {
       await c.query('INSERT INTO product_members (product_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [rows[0].id, uid]);
     }
@@ -105,8 +109,8 @@ router.put('/:productId(\\d+)', requireRole('admin'), requireProductAccess(), ah
   const before = await many('SELECT user_id FROM product_members WHERE product_id = $1', [id]);
   const p = await tx(async (c) => {
     const { rows } = await c.query(
-      'UPDATE products SET name=$2, tagline=$3, description=$4, website_url=$5, color=$6, archived=coalesce($7, archived) WHERE id=$1 RETURNING *',
-      [id, b.name, b.tagline || null, b.description || null, b.website_url || null, b.color || null, b.archived ?? null]
+      'UPDATE products SET name=$2, tagline=$3, description=$4, website_url=$5, color=$6, archived=coalesce($7, archived), category=coalesce($8, category) WHERE id=$1 RETURNING *',
+      [id, b.name, b.tagline || null, b.description || null, b.website_url || null, b.color || null, b.archived ?? null, b.category ?? null]
     );
     if (b.member_ids) {
       await c.query('DELETE FROM product_members WHERE product_id = $1', [id]);

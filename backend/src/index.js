@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import cron from 'node-cron';
 import { config } from './config.js';
-import { pool, one } from './db.js';
+import { pool, one, tx } from './db.js';
 import { migrate } from './migrate.js';
 import { requireAuth } from './auth.js';
 import { runBackup } from './services/backup.js';
@@ -28,6 +28,7 @@ import libraryRoutes from './routes/library.js';
 import aiRoutes from './routes/ai.js';
 import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
+import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -181,6 +182,7 @@ async function bootstrapAdmin() {
 
 async function start() {
   await migrate();
+  await upgradeToProductKpis(tx).then((r) => r && console.log('[setup] KPIs moved to per-product sets')).catch((e) => console.error('[setup] KPI upgrade failed', e.message));
   await bootstrapAdmin();
   await bootstrapManager();
   await bootstrapNotifyEmails();

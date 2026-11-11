@@ -11,7 +11,7 @@ import Published from './product/Published';
 import Chat from './product/Chat';
 
 interface Workspace {
-  product: { id: number; name: string; tagline: string | null; description: string | null; website_url: string | null; color: string | null; image_url: string | null; archived: boolean };
+  product: { id: number; name: string; tagline: string | null; description: string | null; website_url: string | null; color: string | null; image_url: string | null; archived: boolean; category?: string | null };
   members: { id: number; name: string; role: string }[];
   accounts: {
     id: number; brand: string; username: string; platform: string; profile_url: string | null; color: string | null; two_factor_enabled: boolean;
@@ -132,6 +132,8 @@ function Overview({ ws, reload, go }: { ws: Workspace; reload: () => void; go: (
         <div className="panel kpi"><div className="k">Accounts</div><div className="v">{ws.accounts.length}</div><div className="d muted">{ws.accounts.filter((a) => a.sync_enabled).length} syncing automatically</div></div>
       </div>
 
+      <ProductKpis productId={ws.product.id} />
+
       <div className="panel panel-pad">
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
           <h2>Social media accounts</h2>
@@ -226,4 +228,38 @@ function Activity({ productId, limit }: { productId: number; limit?: number }) {
     </div>
   );
   return limit ? body : <div className="panel panel-pad">{body}</div>;
+}
+
+interface PKpi { id: number; name: string; unit: string | null; value: number | null; previous: number | null; target: number | null; status: string | null; higher_is_better: boolean; auto?: boolean }
+
+/** This month's KPIs for the product: targets first, then the numbers with data. */
+function ProductKpis({ productId }: { productId: number }) {
+  const { data } = useData<{ month: string; rows: PKpi[] }>(`/metrics/month?scope=${productId}`);
+  if (!data) return null;
+  const rows = [...data.rows].sort((a, b) => Number(b.target !== null) - Number(a.target !== null) || Number(b.value !== null) - Number(a.value !== null)).slice(0, 6);
+  return (
+    <div className="panel panel-pad">
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+        <h2>KPIs this month</h2>
+        <Link to={`/kpis?scope=${productId}`} className="btn btn-sm btn-ghost">Targets & KPIs</Link>
+      </div>
+      {rows.length === 0 ? <p className="muted">No KPIs set up for this product yet.</p> : (
+        <div className="pkpi-grid">
+          {rows.map((r) => {
+            const pct = r.target ? (r.higher_is_better ? ((r.value ?? 0) / r.target) * 100 : r.value !== null && r.value <= r.target ? 100 : 50) : null;
+            const d = r.value !== null && r.previous !== null ? r.value - r.previous : null;
+            return (
+              <div key={r.id} className="pkpi">
+                <span className="faint small">{r.name}{r.auto ? ' · auto' : ''}</span>
+                <b className="num">{r.value === null ? '—' : `${r.unit === 'PKR' || r.unit === 'USD' ? `${r.unit} ` : ''}${fmt(r.value, 1)}${r.unit === '%' ? '%' : ''}`}</b>
+                {pct !== null ? (
+                  <><span className={`gbar ${r.status === 'on' ? 'done' : ''}`}><i style={{ width: `${Math.min(100, Math.max(2, pct))}%` }} /></span><span className="faint small">Target {fmt(r.target, 1)}</span></>
+                ) : <span className={`small ${d === null || d === 0 ? 'faint' : (d > 0) === r.higher_is_better ? 'up' : 'down'}`}>{d === null ? 'No target set' : `${d > 0 ? '+' : ''}${fmt(Math.round(d * 10) / 10, 1)} vs last month`}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
