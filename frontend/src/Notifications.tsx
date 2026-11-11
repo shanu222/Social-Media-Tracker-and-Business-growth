@@ -1,20 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Bell, CheckCheck, CheckCircle2, Clock, Edit3, HelpCircle, Megaphone, MessageSquare, TrendingUp, TriangleAlert, UserPlus } from 'lucide-react';
 import { api } from './api';
-import { timeAgo } from './lib';
+import { timeAgo, useAuth } from './lib';
 
+interface Activity { id: number; at: string; kind: string; text: string; link: string | null; product_name: string | null; mine: boolean; unseen: boolean }
+const ACT_ICON: Record<string, [typeof Bell, string]> = {
+  assigned: [UserPlus, '#1a5fe0'], progress: [TrendingUp, '#12b5e8'], done: [CheckCircle2, '#16b97a'], question: [HelpCircle, '#e0812a'],
+  comment: [MessageSquare, '#7a3fb0'], edit: [Edit3, '#5e6a7c'], warn: [TriangleAlert, '#c2372f'], time: [Clock, '#0b7f66'], announce: [Megaphone, '#7a3fb0'],
+};
 interface Item { id: number; kind: string; title: string; body: string | null; link: string | null; product_name: string | null; read_at: string | null; created_at: string }
 
 /** Bell with unread count. Polls every 30 s while the tab is visible. */
 export default function Notifications({ dark }: { dark?: boolean }) {
   const nav = useNavigate();
-  const [data, setData] = useState<{ unread: number; items: Item[] }>({ unread: 0, items: [] });
+  const { can } = useAuth();
+  const isAdmin = can('admin');
+  const [data, setData] = useState<{ unread: number; items: Item[]; activityUnread?: number }>({ unread: 0, items: [] });
+  const [tab, setTab] = useState<'mine' | 'team'>('mine');
+  const [activity, setActivity] = useState<Activity[] | null>(null);
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
-  const load = () => api.get<{ unread: number; items: Item[] }>('/notifications').then(setData).catch(() => {});
+  const load = () => api.get<{ unread: number; items: Item[]; activityUnread?: number }>('/notifications').then(setData).catch(() => {});
+  async function openTeam() {
+    setTab('team');
+    try { setActivity(await api.get<Activity[]>('/notifications/activity')); await api.post('/notifications/activity/seen', {}); load(); } catch { setActivity([]); }
+  }
   useEffect(() => {
     load();
     const t = setInterval(() => document.visibilityState === 'visible' && load(), 30000);
@@ -57,14 +71,38 @@ export default function Notifications({ dark }: { dark?: boolean }) {
       <button ref={btn} className="bell btn btn-ghost btn-icon" onClick={toggle} aria-label={`Notifications${data.unread ? `, ${data.unread} unread` : ''}`} aria-expanded={open}
         style={dark ? { color: '#c9d1dd' } : undefined}>
         <Bell size={19} />
-        {data.unread > 0 && <span className="dot-alert">{data.unread > 99 ? '99+' : data.unread}</span>}
+        {(data.unread + (data.activityUnread || 0)) > 0 && <span className="dot-alert">{data.unread + (data.activityUnread || 0) > 99 ? '99+' : data.unread + (data.activityUnread || 0)}</span>}
       </button>
-      {open && (
+      {open && createPortal(
         <div className="notif-panel" style={{ top: pos.top, left: pos.left }} role="dialog" aria-label="Notifications">
           <div className="row" style={{ justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--line-2)' }}>
             <h3>Notifications</h3>
-            {data.unread > 0 && <button className="btn btn-sm btn-ghost" onClick={readAll}><CheckCheck size={14} /> Mark all read</button>}
+            {tab === 'mine' && data.unread > 0 && <button className="btn btn-sm btn-ghost" onClick={readAll}><CheckCheck size={14} /> Mark all read</button>}
           </div>
+          {isAdmin && (
+            <div className="notif-tabs" role="tablist">
+              <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>For you{data.unread > 0 && <span className="count">{data.unread}</span>}</button>
+              <button role="tab" aria-selected={tab === 'team'} className={tab === 'team' ? 'on' : ''} onClick={openTeam}>Team activity{(data.activityUnread || 0) > 0 && <span className="count">{data.activityUnread}</span>}</button>
+            </div>
+          )}
+          {tab === 'team' && isAdmin ? (
+            <>
+              {!activity && <p className="muted" style={{ padding: 20 }}>Loading…</p>}
+              {activity?.length === 0 && <p className="muted" style={{ padding: 20 }}>No team activity yet.</p>}
+              {activity?.map((a) => {
+                const [Icon, color] = ACT_ICON[a.kind] || ACT_ICON.edit;
+                return (
+                  <button key={a.id} className={`notif-item ${a.unseen ? 'unread' : ''}`} onClick={() => { setOpen(false); if (a.link) nav(a.link); }}>
+                    <span className="act-ico" style={{ color, background: `${color}1a` }}><Icon size={15} /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', color: 'var(--ink)', fontSize: 13.5 }}>{a.text}</span>
+                      <span className="faint" style={{ fontSize: 12 }}>{a.product_name ? `${a.product_name} · ` : ''}{timeAgo(a.at)}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          ) : (<>
           {data.items.length === 0 && <p className="muted" style={{ padding: 20 }}>You're all caught up.</p>}
           {data.items.map((i) => (
             <button key={i.id} className={`notif-item ${i.read_at ? '' : 'unread'}`} onClick={() => go(i)}>
@@ -76,7 +114,9 @@ export default function Notifications({ dark }: { dark?: boolean }) {
               </span>
             </button>
           ))}
-        </div>
+          </>)}
+        </div>,
+        document.body
       )}
     </>
   );

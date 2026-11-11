@@ -740,3 +740,8 @@ a.att:hover { filter: brightness(0.97); }
 .kpi-sub { padding: 12px 20px 2px; font-size: 11.5px; font-weight: 700; color: var(--signal); letter-spacing: .02em; }
 .kpi-sub + .kpi-row { border-top: 0; }
 .track-sum .mbar { background: #dfe6ef; }
+.notif-tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line-2); position: sticky; top: 0; background: #fff; z-index: 1; }
+.notif-tabs button { flex: 1; display: inline-flex; gap: 6px; justify-content: center; align-items: center; border: 0; background: none; padding: 8px 6px 10px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.notif-tabs button.on { color: var(--ink); border-bottom-color: var(--signal); }
+.notif-tabs .count { min-width: 18px; height: 18px; font-size: 11px; }
+.act-ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; }

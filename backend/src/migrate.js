@@ -461,6 +461,8 @@ CREATE TABLE IF NOT EXISTS announcement_reminders (
 // v5 — KPIs per product: product type, product-scoped metrics, automatic social metrics
 const SCHEMA_V5 = `
 ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+-- When the admin last looked at Team activity in the bell
+ALTER TABLE users ADD COLUMN IF NOT EXISTS activity_seen_at TIMESTAMPTZ;
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE metrics ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE metrics DROP CONSTRAINT IF EXISTS metrics_name_key;
