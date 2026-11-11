@@ -68,17 +68,16 @@ Everyone can change **their own** password; new users and admin-reset passwords 
 
 ### Automatic follower counts (official APIs only)
 
-| Platform | How | What you set |
-|---|---|---|
-| YouTube | YouTube Data API v3 | `YOUTUBE_API_KEY` on Railway; Channel ID (`UC…`) or `@handle` on the account |
-| Telegram | Bot API `getChatMemberCount` | `TELEGRAM_BOT_TOKEN` on Railway; channel `@username` on the account (add the bot to private channels) |
-| Discord | Public invite endpoint (`with_counts`) | the invite code (after `discord.gg/`) on the account |
-| Instagram | Instagram Graph API (business/creator account) | IG user ID + long-lived access token on the account |
-| Facebook | Graph API (Page) | Page ID + Page access token on the account |
-| LinkedIn, TikTok, X… | need partner-approved apps | log numbers in **Daily update** |
+| Platform | How | What you set | Cost |
+|---|---|---|---|
+| YouTube | YouTube Data API v3 | `YOUTUBE_API_KEY` on Railway; Channel ID (`UC…`) or `@handle` on the account | Free (10,000 units/day; 1 per check) |
+| Telegram | Bot API `getChatMemberCount` | `TELEGRAM_BOT_TOKEN` on Railway (from @BotFather); channel `@username` on the account | Free |
+| Discord | Public invite endpoint (`with_counts`) | the invite code (after `discord.gg/`) on the account | Free |
+| Instagram, Facebook, LinkedIn, TikTok, X… | manual | enter numbers in **Daily update** | — |
 
+New YouTube, Telegram and Discord accounts have auto-sync switched on by default.
 Synced every 6 hours (`SYNC_CRON`) and with **Sync now**. No scraping and no password logins — nothing that risks an account ban.
-Tokens are encrypted and never returned to any browser. Publishing/scheduling directly to platforms is not automated
+Publishing/scheduling directly to platforms is not automated
 (it needs app review from each platform); the manager publishes and records the link.
 
 ---

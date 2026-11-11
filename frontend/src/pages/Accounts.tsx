@@ -6,6 +6,7 @@ import { useAuth, useData, useToast, Loading, ErrorBox, Modal, AccountLabel, fmt
 
 import { PLATFORMS as PLATFORM_LIST, PlatformChip } from '../lib';
 const PLATFORMS = PLATFORM_LIST.map((p) => p.id);
+const AUTO_SYNC = ['youtube', 'telegram', 'discord'];
 interface SyncSupport { support: Record<string, { needs: string; token: boolean }>; youtubeKey: boolean; telegramToken: boolean }
 
 export default function Accounts() {
@@ -104,7 +105,7 @@ export function AccountForm({ account, onClose, onSaved, onDeleted, defaultProdu
     product_id: account?.product_id ? String(account.product_id) : defaultProductId ? String(defaultProductId) : '',
     external_id: account?.external_id || '',
     api_token: '',
-    sync_enabled: account?.sync_enabled || false,
+    sync_enabled: account ? Boolean(account.sync_enabled) : false,
   });
   const products = useData<{ id: number; name: string }[]>('/products');
   const sync = useData<SyncSupport>('/accounts/sync-support');
@@ -171,7 +172,7 @@ export function AccountForm({ account, onClose, onSaved, onDeleted, defaultProdu
         <div className="field"><label htmlFor="username">Username</label><input id="username" className="input" required value={f.username} onChange={(e) => set('username', e.target.value)} placeholder="without @" /></div>
         <div className="field">
           <label htmlFor="platform">Platform</label>
-          <select id="platform" className="input" value={f.platform} onChange={(e) => set('platform', e.target.value)}>
+          <select id="platform" className="input" value={f.platform} onChange={(e) => { const pl = e.target.value; setF((x) => ({ ...x, platform: pl, sync_enabled: AUTO_SYNC.includes(pl) })); }}>
             {PLATFORM_LIST.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </div>
@@ -195,12 +196,12 @@ export function AccountForm({ account, onClose, onSaved, onDeleted, defaultProdu
           <h3 style={{ marginBottom: 4 }}>Automatic numbers</h3>
           {support ? (
             <>
-              <p className="muted" style={{ fontSize: 13.5, marginBottom: 10 }}>Uses the platform's official API only. Needs: {support.needs}.
+              <p className="muted" style={{ fontSize: 13.5, marginBottom: 10 }}>Free, using the platform's official API. Needs: {support.needs}.
                 {f.platform === 'youtube' && !sync.data?.youtubeKey && <b className="down"> YOUTUBE_API_KEY is not set on Railway yet.</b>}
                 {f.platform === 'telegram' && !sync.data?.telegramToken && <b className="down"> TELEGRAM_BOT_TOKEN is not set on Railway yet.</b>}
               </p>
               <div className="form-grid">
-                <div className="field"><label htmlFor="ext">{f.platform === 'discord' ? 'Invite code' : f.platform === 'youtube' ? 'Channel ID or @handle' : f.platform === 'telegram' ? 'Channel @username' : f.platform === 'facebook' ? 'Page ID' : 'Instagram user ID'}</label>
+                <div className="field"><label htmlFor="ext">{f.platform === 'discord' ? 'Invite code' : f.platform === 'youtube' ? 'Channel ID or @handle' : 'Channel @username'}</label>
                   <input id="ext" className="input" value={f.external_id} onChange={(e) => set('external_id', e.target.value)} autoComplete="off" /></div>
                 {support.token && (
                   <div className="field"><label htmlFor="tok">Access token</label>
@@ -210,7 +211,7 @@ export function AccountForm({ account, onClose, onSaved, onDeleted, defaultProdu
                 <label className="check full"><input type="checkbox" checked={f.sync_enabled} onChange={(e) => set('sync_enabled', e.target.checked)} /> Update this account's numbers automatically every 6 hours</label>
               </div>
             </>
-          ) : <p className="muted" style={{ fontSize: 13.5 }}>{f.platform[0].toUpperCase() + f.platform.slice(1)} doesn't offer an open API for these numbers, so they're logged in Daily update.</p>}
+          ) : <p className="muted" style={{ fontSize: 13.5 }}>{PLATFORM_LIST.find((p) => p.id === f.platform)?.label} numbers are entered by hand in <b>Daily update</b> (about a minute a day). Automatic numbers are available for YouTube, Telegram and Discord.</p>}
         </div>
         <label className="check full"><input type="checkbox" checked={f.two_factor_enabled} onChange={(e) => set('two_factor_enabled', e.target.checked)} /> Two-factor authentication is turned on</label>
         {account && <label className="check full"><input type="checkbox" checked={f.archived} onChange={(e) => set('archived', e.target.checked)} /> Archive this account (hide it but keep history)</label>}

@@ -1,5 +1,4 @@
 import { many, one, query } from '../db.js';
-import { decrypt } from '../crypto.js';
 import { today } from '../util.js';
 
 /**
@@ -9,12 +8,10 @@ import { today } from '../util.js';
  *  YouTube    YouTube Data API v3 (YOUTUBE_API_KEY env)            external_id = channel ID (UC…) or @handle
  *  Telegram   Bot API getChatMemberCount (TELEGRAM_BOT_TOKEN env)  external_id = @channelusername or chat id
  *  Discord    Public invite endpoint with_counts=true              external_id = invite code (e.g. abc123)
- *  Instagram  Instagram Graph API (business/creator account)       external_id = IG user id, token = long-lived access token
- *  Facebook   Facebook Graph API (Page)                            external_id = Page id, token = Page access token
- *  LinkedIn / X / TikTok and others need partner-approved apps → log numbers manually in Daily update.
+ *  Instagram, Facebook, LinkedIn, TikTok, X and others are logged manually in Daily update
+ *  (Meta's API needs a developer app and tokens that expire, so it is not worth the upkeep here).
  */
 
-const GRAPH = 'https://graph.facebook.com/v21.0';
 const TIMEOUT = 15000;
 
 async function getJson(url) {
@@ -37,8 +34,6 @@ export const SYNC_SUPPORT = {
   youtube: { needs: 'YOUTUBE_API_KEY on the server; Channel ID (starts with UC) or @handle', token: false },
   telegram: { needs: 'TELEGRAM_BOT_TOKEN on the server; channel @username (bot must be added to private channels)', token: false },
   discord: { needs: 'A permanent invite code for the server (the part after discord.gg/)', token: false },
-  instagram: { needs: 'Instagram business/creator user ID and a long-lived access token from Meta', token: true },
-  facebook: { needs: 'Facebook Page ID and a Page access token from Meta', token: true },
 };
 
 const fetchers = {
@@ -69,18 +64,6 @@ const fetchers = {
     if (!code) throw new Error('Add the server invite code first.');
     const d = await getJson(`https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`);
     return { followers: Number(d.approximate_member_count), extra: { online: Number(d.approximate_presence_count) } };
-  },
-  async instagram(acc) {
-    const token = decrypt(acc.api_token_enc);
-    if (!acc.external_id || !token) throw new Error('Add the Instagram user ID and access token first.');
-    const d = await getJson(`${GRAPH}/${encodeURIComponent(acc.external_id)}?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(token)}`);
-    return { followers: d.followers_count ?? null, following: d.follows_count ?? null, posts: d.media_count ?? null };
-  },
-  async facebook(acc) {
-    const token = decrypt(acc.api_token_enc);
-    if (!acc.external_id || !token) throw new Error('Add the Page ID and Page access token first.');
-    const d = await getJson(`${GRAPH}/${encodeURIComponent(acc.external_id)}?fields=followers_count,fan_count&access_token=${encodeURIComponent(token)}`);
-    return { followers: d.followers_count ?? d.fan_count ?? null, extra: { page_likes: d.fan_count ?? null } };
   },
 };
 

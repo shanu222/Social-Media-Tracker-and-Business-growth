@@ -131,7 +131,7 @@ function Integrations() {
         {row(data.youtubeKey, 'YouTube', 'add YOUTUBE_API_KEY on Railway')}
         {row(data.telegramToken, 'Telegram', 'add TELEGRAM_BOT_TOKEN on Railway')}
         <li style={{ marginBottom: 4 }}><span className="badge badge-good">Ready</span> Discord — add the invite code on the account</li>
-        <li><span className="badge badge-info">Per account</span> Instagram & Facebook — add the Meta access token on the account</li>
+        <li><span className="badge">Manual</span> Instagram, Facebook, LinkedIn and others — enter numbers in Daily update</li>
       </ul>
     </div>
   );
