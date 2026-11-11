@@ -1,0 +1,12 @@
+{
+  "name": "growth-desk",
+  "private": true,
+  "description": "Root launcher so Railway can build the backend from the repository root",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "npm ci --prefix backend --omit=dev",
+    "start": "npm start --prefix backend"
+  }
+}
