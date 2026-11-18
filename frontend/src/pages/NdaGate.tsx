@@ -118,7 +118,7 @@ function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) 
           <div className="notice warn" role="alert" style={{ alignItems: 'flex-start' }}>
             <span>
               <b>The admin asked you to sign again.</b>
-              {info.resign.reason ? <> Reason: {info.resign.reason}</> : <> Please check your details.</>}
+              {info.resign.reason ? <> Reason: {info.resign.reason.replace(/[.!?]*\s*$/, '')}.</> : <> Please check your details.</>}
               {' '}Your earlier details are filled in. Correct what was wrong, then upload your CNIC images and signature again.
             </span>
           </div>
