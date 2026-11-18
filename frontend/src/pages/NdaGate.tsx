@@ -4,7 +4,11 @@ import { api, download } from '../api';
 import { useAuth, useData, useToast, Loading, ErrorBox } from '../lib';
 import { NdaLetter, type NdaSection, type SignedNda } from './NdaLetter';
 
-interface NdaInfo { version: string; title: string; signed: boolean; prefill: { full_name: string; role_title: string }; sections: NdaSection[]; signature: SignedNda | null }
+interface NdaInfo {
+  version: string; title: string; signed: boolean; sections: NdaSection[]; signature: SignedNda | null;
+  resign: { at: string; reason: string | null } | null;
+  prefill: { full_name: string; guardian: string; cnic: string; phone: string; address: string; role_title: string };
+}
 
 const formatCnic = (v: string) => {
   const d = v.replace(/\D/g, '').slice(0, 13);
@@ -58,10 +62,10 @@ export default function NdaGate() {
 function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) => void }) {
   const toast = useToast();
   const [name, setName] = useState(info.prefill.full_name);
-  const [guardian, setGuardian] = useState('');
-  const [cnic, setCnic] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
+  const [guardian, setGuardian] = useState(info.prefill.guardian || '');
+  const [cnic, setCnic] = useState(info.prefill.cnic || '');
+  const [phone, setPhone] = useState(info.prefill.phone || '');
+  const [address, setAddress] = useState(info.prefill.address || '');
   const [front, setFront] = useState<string | null>(null);
   const [back, setBack] = useState<string | null>(null);
   const [sig, setSig] = useState<string | null>(null);
@@ -110,6 +114,15 @@ function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) 
       </div>
 
       <form className="panel nda-form" onSubmit={submit}>
+        {info.resign && (
+          <div className="notice warn" role="alert" style={{ alignItems: 'flex-start' }}>
+            <span>
+              <b>The admin asked you to sign again.</b>
+              {info.resign.reason ? <> Reason: {info.resign.reason}</> : <> Please check your details.</>}
+              {' '}Your earlier details are filled in. Correct what was wrong, then upload your CNIC images and signature again.
+            </span>
+          </div>
+        )}
         <h2>Sign the agreement</h2>
         <p className="muted small">Your CNIC, address and images are encrypted and visible only to you and the company admin.</p>
 

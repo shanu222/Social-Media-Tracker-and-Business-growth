@@ -22,7 +22,7 @@ export async function requireAuth(req, res, next) {
     const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'], issuer: 'growth-desk' });
     const user = await one(
       `SELECT id, email, name, title, role, active, token_version, must_change_password, can_message_team,
-         EXISTS (SELECT 1 FROM nda_signatures n WHERE n.user_id = users.id AND n.version = $2) AS nda_signed
+         EXISTS (SELECT 1 FROM nda_signatures n WHERE n.user_id = users.id AND n.version = $2 AND n.superseded_at IS NULL) AS nda_signed
        FROM users WHERE id = $1`,
       [payload.sub, NDA_VERSION]
     );

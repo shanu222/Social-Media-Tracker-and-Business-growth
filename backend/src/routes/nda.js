@@ -52,7 +52,7 @@ export function requireNda(req, res, next) {
 }
 
 async function signedFor(userId) {
-  return one('SELECT * FROM nda_signatures WHERE user_id = $1 AND version = $2', [userId, NDA_VERSION]);
+  return one('SELECT * FROM nda_signatures WHERE user_id = $1 AND version = $2 AND superseded_at IS NULL', [userId, NDA_VERSION]);
 }
 
 /** Full view of a signature: decrypted CNIC, contact details and images as data URLs. */
@@ -74,10 +74,20 @@ function present(sig) {
 router.get('/', ah(async (req, res) => {
   const u = await one('SELECT name, title, role FROM users WHERE id = $1', [req.user.id]);
   const sig = await signedFor(req.user.id);
+  // If the admin asked them to sign again, show why and pre-fill the earlier text details
+  const prev = sig ? null : await one('SELECT * FROM nda_signatures WHERE user_id = $1 AND superseded_at IS NOT NULL ORDER BY superseded_at DESC LIMIT 1', [req.user.id]);
   res.json({
     version: NDA_VERSION, title: NDA_TITLE, required: req.user.role !== 'admin',
     signed: Boolean(sig),
-    prefill: { full_name: u.name, role_title: u.title || (u.role === 'manager' ? 'Social Media Manager' : 'Team Member') },
+    resign: prev ? { at: prev.superseded_at, reason: prev.reset_reason } : null,
+    prefill: {
+      full_name: prev?.full_name || u.name,
+      guardian: prev?.guardian || '',
+      cnic: prev ? decrypt(prev.cnic_enc) : '',
+      phone: prev?.phone ? `0${prev.phone.replace(/\D/g, '').slice(2)}` : '',
+      address: prev ? decrypt(prev.address_enc) || '' : '',
+      role_title: u.title || (u.role === 'manager' ? 'Social Media Manager' : 'Team Member'),
+    },
     sections: ndaSections({ name: u.name, cnic: '_____-_______-_', role: u.title || 'Team Member' }),
     signature: sig ? present(sig) : null,
   });
@@ -164,8 +174,10 @@ router.get('/pdf', ah(async (req, res) => {
 
 router.get('/signatures', requireRole('admin'), ah(async (_req, res) => {
   res.json(await many(
-    `SELECT u.id AS user_id, u.name, u.role, s.id, s.full_name, s.cnic_masked, s.signed_at, s.version
-     FROM users u LEFT JOIN nda_signatures s ON s.user_id = u.id AND s.version = $1
+    `SELECT u.id AS user_id, u.name, u.role, s.id, s.full_name, s.cnic_masked, s.signed_at, s.version,
+       (SELECT json_build_object('at', p.superseded_at, 'reason', p.reset_reason) FROM nda_signatures p
+         WHERE p.user_id = u.id AND p.superseded_at IS NOT NULL ORDER BY p.superseded_at DESC LIMIT 1) AS resign
+     FROM users u LEFT JOIN nda_signatures s ON s.user_id = u.id AND s.version = $1 AND s.superseded_at IS NULL
      WHERE u.deleted_at IS NULL ORDER BY u.name`, [NDA_VERSION]
   ));
 }));
@@ -184,10 +196,29 @@ router.get('/user/:userId(\\d+)/pdf', requireRole('admin'), ah(async (req, res) 
   await sendPdf(res, sig);
 }));
 
-/** Admin: ask someone to sign again (e.g. details were wrong). Their old signature is removed. */
+/**
+ * Admin: ask someone to sign again (e.g. details were wrong). Their current signature is kept as history,
+ * they are stopped at the NDA on their next request (within seconds if they are using the app),
+ * and they get a notification and an email with the reason.
+ */
 router.post('/user/:userId(\\d+)/reset', requireRole('admin'), ah(async (req, res) => {
-  await query('DELETE FROM nda_signatures WHERE user_id = $1 AND version = $2', [Number(req.params.userId), NDA_VERSION]);
-  await audit(req, 'nda.reset', 'user', req.params.userId);
+  const userId = Number(req.params.userId);
+  const { reason } = parse(z.object({ reason: z.string().trim().max(300).optional() }), req.body || {});
+  const r = await query(
+    'UPDATE nda_signatures SET superseded_at = now(), reset_reason = $3 WHERE user_id = $1 AND version = $2 AND superseded_at IS NULL',
+    [userId, NDA_VERSION, reason || null]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'This person has no signed agreement to redo.' });
+  await audit(req, 'nda.reset', 'user', userId, { reason: reason || null });
+  await notify([userId], { kind: 'nda', title: 'Please sign the confidentiality agreement again', body: reason || null, link: '/' }, req.user.id);
+  emailUserResult(userId, {
+    kind: 'nda', subject: 'Please sign the confidentiality agreement again',
+    ...noticeEmail({
+      heading: 'Sign the agreement again',
+      intro: `${req.user.name} asked you to sign the ${NDA_TITLE} again. You will see it the next time you open Growth Desk; your earlier details are filled in so you only need to correct what was wrong.`,
+      rows: reason ? [['Reason', reason]] : [], link: '/', button: 'Open Growth Desk',
+    }),
+  }, { important: true, ref: `nda-reset:${userId}` }).catch(() => {});
   res.json({ ok: true });
 }));
 

@@ -486,6 +486,11 @@ ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_front_enc BYTEA;
 ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_front_type TEXT;
 ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_back_enc BYTEA;
 ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_back_type TEXT;
+-- "Ask to sign again" keeps the old signature as history instead of deleting it
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS reset_reason TEXT;
+ALTER TABLE nda_signatures DROP CONSTRAINT IF EXISTS nda_signatures_user_id_version_key;
+CREATE UNIQUE INDEX IF NOT EXISTS nda_active_uq ON nda_signatures(user_id, version) WHERE superseded_at IS NULL;
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

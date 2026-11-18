@@ -91,7 +91,7 @@ router.post(
     res.json({
       token: signToken(user),
       user: { id: user.id, email: user.email, name: user.name, title: user.title, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password,
-        nda_required: user.role !== 'admin' && !(await one('SELECT 1 FROM nda_signatures WHERE user_id = $1 AND version = $2', [user.id, NDA_VERSION])) },
+        nda_required: user.role !== 'admin' && !(await one('SELECT 1 FROM nda_signatures WHERE user_id = $1 AND version = $2 AND superseded_at IS NULL', [user.id, NDA_VERSION])) },
     });
   })
 );
