@@ -362,9 +362,11 @@ Every team member except admins signs the company's Non-Disclosure and Confident
 workspace. This includes people who already had accounts: they are asked the next time they open the app. Until they
 sign, every API request except sign-in and the NDA itself is refused with `NDA_REQUIRED`.
 
-- **Signing:** they read the full letter, enter their full name, optional father's/husband's name and CNIC, and draw
-  or upload their signature. They then see their complete signed copy, can download it as a PDF, and continue.
-- **Evidence:** the CNIC and signature image are stored encrypted, with the sign-in IP, browser and a SHA-256
+- **Signing:** they read the full letter, then enter their full name, optional father's/husband's name, CNIC,
+  mobile number and home address. They upload photos of the CNIC front and back and of their signature on paper,
+  and type their full name to sign. They then see their complete signed copy, can download it as a PDF, and continue.
+- **Evidence:** the CNIC, address, CNIC images and signature are stored encrypted, and the signed PDF (with an
+  identity annex) is emailed to the signer and the admins. Records also keep the sign-in IP, browser and a SHA-256
   fingerprint of the exact text agreed to.
 - **Admin:** Settings → Team has an **NDA** column. **Signed** opens the full letter, with *Download PDF* and
   *Ask to sign again*. Team members can re-download their own copy in Settings.

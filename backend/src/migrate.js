@@ -479,6 +479,13 @@ CREATE TABLE IF NOT EXISTS nda_signatures (
   signed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, version)
 );
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS typed_name TEXT;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS address_enc TEXT;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_front_enc BYTEA;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_front_type TEXT;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_back_enc BYTEA;
+ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS cnic_back_type TEXT;
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

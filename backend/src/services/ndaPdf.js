@@ -37,7 +37,7 @@ export function renderNdaPdf(sig, signatureBuf) {
     doc.moveDown(0.6);
     const y0 = doc.y;
     const colW = (W - 30) / 2;
-    doc.roundedRect(L, y0, colW, 160, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
+    doc.roundedRect(L, y0, colW, 176, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
     doc.fillColor('#5b6676').font('Helvetica-Bold').fontSize(8.5).text('TEAM MEMBER', L + 12, y0 + 10);
     try { doc.image(signatureBuf, L + 12, y0 + 26, { fit: [colW - 24, 56], align: 'left' }); } catch { doc.fillColor('#c2372f').fontSize(9).text('[signature image]', L + 12, y0 + 40); }
     doc.moveTo(L + 12, y0 + 88).lineTo(L + colW - 12, y0 + 88).strokeColor('#8a95a5').lineWidth(0.6).stroke();
@@ -46,20 +46,45 @@ export function renderNdaPdf(sig, signatureBuf) {
       .text(sig.guardian || ' ', L + 12, doc.y + 1, { width: colW - 24 })
       .text(`CNIC: ${sig.cnic}`, { width: colW - 24 })
       .text(`Role: ${sig.role_title || 'Team Member'}`, { width: colW - 24 })
+      .text(sig.phone ? `Mobile: ${sig.phone}` : ' ', { width: colW - 24 })
       .text(`Date: ${dateText}`, { width: colW - 24 });
 
     const x2 = L + colW + 30;
-    doc.roundedRect(x2, y0, colW, 160, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
+    doc.roundedRect(x2, y0, colW, 176, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
     doc.fillColor('#5b6676').font('Helvetica-Bold').fontSize(8.5).text('FOR THE COMPANY', x2 + 12, y0 + 10);
     if (hasLogo) doc.image(BRAND.logo, x2 + 12, y0 + 28, { width: 48, height: 48 });
     doc.moveTo(x2 + 12, y0 + 88).lineTo(x2 + colW - 12, y0 + 88).strokeColor('#8a95a5').lineWidth(0.6).stroke();
     doc.fillColor('#0f1b33').font('Helvetica-Bold').fontSize(10).text(BRAND.ceo, x2 + 12, y0 + 94, { width: colW - 24 });
     doc.fillColor('#1b2433').font('Helvetica').fontSize(9).text(BRAND.ceoTitle, x2 + 12, doc.y + 2, { width: colW - 24 }).text(BRAND.legal, { width: colW - 24 });
-    doc.y = y0 + 176;
+    doc.y = y0 + 190;
     doc.fillColor('#8a95a5').font('Helvetica').fontSize(7.5).text(
       `Signed electronically in ${BRAND.app} on ${signed.toISOString().replace('T', ' ').slice(0, 19)} UTC from IP ${sig.ip || 'unknown'}. Document fingerprint (SHA-256): ${sig.doc_hash}`,
       L, doc.y, { width: W }
     );
+    if (sig.typed_name) doc.text(`Typed name as signature: "${sig.typed_name}".`, L, doc.y + 2, { width: W });
+
+    // Annex A: identity details and CNIC images
+    if (sig.cnicFront || sig.cnicBack || sig.address) {
+      doc.addPage();
+      doc.fillColor('#0f1b33').font('Helvetica-Bold').fontSize(14).text('Annex A — Identity verification', L, 56, { width: W });
+      doc.fillColor('#5b6676').font('Helvetica').fontSize(9).text('Provided by the Team Member when signing. Confidential: for verification by the Company only.', L, doc.y + 2, { width: W });
+      doc.moveDown(0.8);
+      const row = (k, v) => { const y = doc.y; doc.fillColor('#5b6676').font('Helvetica').fontSize(10).text(k, L, y, { width: 110 }); doc.fillColor('#0f1b33').font('Helvetica-Bold').text(v || '—', L + 115, y, { width: W - 115 }); doc.moveDown(0.35); };
+      row('Full name', sig.full_name + (sig.guardian ? ` (${sig.guardian})` : ''));
+      row('CNIC', sig.cnic);
+      row('Mobile', sig.phone);
+      row('Address', sig.address);
+      row('Signed', `${dateText} · IP ${sig.ip || 'unknown'}`);
+      doc.moveDown(0.6);
+      const boxW = (W - 20) / 2, boxH = boxW * 0.66, by = doc.y;
+      [['CNIC — front', sig.cnicFront], ['CNIC — back', sig.cnicBack]].forEach(([label, buf], i) => {
+        const bx = L + i * (boxW + 20);
+        doc.fillColor('#5b6676').font('Helvetica-Bold').fontSize(8.5).text(String(label).toUpperCase(), bx, by, { width: boxW });
+        doc.roundedRect(bx, by + 14, boxW, boxH, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
+        if (buf) { try { doc.image(buf, bx + 6, by + 20, { fit: [boxW - 12, boxH - 12], align: 'center', valign: 'center' }); } catch { /* unreadable image */ } }
+      });
+      doc.y = by + boxH + 30;
+    }
 
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {

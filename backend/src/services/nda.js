@@ -5,7 +5,7 @@ import { BRAND } from '../brand.js';
  * Non-disclosure agreement every team member (everyone except admins) signs before using
  * the workspace. Changing the text? Bump NDA_VERSION so everyone signs the new version.
  */
-export const NDA_VERSION = '2026-11-v1';
+export const NDA_VERSION = '2026-11-v2';
 export const NDA_TITLE = 'Non-Disclosure and Confidentiality Agreement';
 
 /** The agreement as sections; `{name}`, `{cnic}`, `{role}` are filled in for display and PDF. */
@@ -40,20 +40,36 @@ export function ndaSections({ name = '[Full name]', cnic = '[CNIC]', role = '[Ro
       body: 'Content, designs, documents, code and other work you create for the Company belong to the Company. When your work ends, you will return or delete Company files and information in your possession.',
     },
     {
-      heading: '6. Responsibility',
-      body: 'You are responsible for keeping this agreement. If confidential information or account access is disclosed or misused through you, you will be held responsible for it. Depending on the seriousness, this may lead to ending your engagement with the Company, recovery of any loss caused, and action available under the laws of Pakistan.',
+      heading: '6. Devices, screenshots and recordings',
+      body: 'You will keep the devices you use for Company work locked, will not save Company passwords on shared or public devices, and will not take screenshots, screen recordings or photos of confidential information except when your work requires it and only to share inside the Company.',
     },
     {
-      heading: '7. Duration',
-      body: 'This agreement applies from the date you sign it, throughout your work with the Company, and for three (3) years after it ends. Obligations about passwords, account access, source code and user data continue without a time limit.',
+      heading: '7. Activity records',
+      body: 'You understand that actions in the Company workspace (such as tasks, messages, files, logins and changes) are recorded, and that these records may be used to verify how information was accessed or shared.',
     },
     {
-      heading: '8. Governing law',
-      body: 'This agreement is governed by the laws of the Islamic Republic of Pakistan, and the courts of Islamabad have jurisdiction.',
+      heading: '8. Responsibility',
+      body: 'You are responsible for keeping this agreement. If confidential information or account access is disclosed or misused through you, you will be held responsible for it. Depending on the seriousness, this may lead to ending your engagement with the Company, recovery of any loss caused, and action available under the laws of Pakistan, including the Prevention of Electronic Crimes Act, 2016 where it applies.',
+    },
+    {
+      heading: '9. Duration',
+      body: 'This agreement applies from the date you sign it, throughout your work with the Company, and for one (1) month after your work with the Company ends. Obligations about passwords, account access, source code and user data continue without a time limit.',
+    },
+    {
+      heading: '10. Your details',
+      body: 'You confirm that the name, CNIC, mobile number, address and CNIC images you provide with this agreement are true and belong to you.',
+    },
+    {
+      heading: '11. Electronic signature',
+      body: 'You agree that this agreement is signed electronically, and that your uploaded signature together with your typed name is as valid and binding as a handwritten signature under the Electronic Transactions Ordinance, 2002. A copy of the signed agreement is emailed to you and to the Company.',
+    },
+    {
+      heading: '12. Governing law and general terms',
+      body: 'This agreement is governed by the laws of the Islamic Republic of Pakistan, and the courts of Islamabad have jurisdiction. If any part of this agreement is found unenforceable, the rest remains in effect. This agreement is in addition to any other agreement you have with the Company.',
     },
     {
       heading: 'Declaration',
-      body: `I, ${name}, holder of CNIC ${cnic}, have read and understood this agreement. I agree to keep all Company information, products and passwords confidential and to follow this agreement. I sign it of my own free will.`,
+      body: `I, ${name}, holder of CNIC ${cnic}, have read and understood this agreement. I agree to keep all Company information, products and passwords confidential and to follow this agreement. I sign it of my own free will by uploading my signature and typing my full name.`,
     },
   ];
 }

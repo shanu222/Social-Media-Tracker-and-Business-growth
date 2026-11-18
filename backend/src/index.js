@@ -61,8 +61,8 @@ app.use(
   })
 );
 app.use(compression());
-// Signature images need a little more room
-app.use('/api/nda', express.json({ limit: '2mb' }));
+// Signature and CNIC images need more room
+app.use('/api/nda', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(
   '/api',

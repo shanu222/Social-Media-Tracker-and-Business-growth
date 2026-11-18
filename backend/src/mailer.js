@@ -34,21 +34,22 @@ async function smtpTransport() {
   return smtp;
 }
 
-async function deliver({ to, subject, html, text }) {
+async function deliver({ to, subject, html, text, attachments = [] }) {
   const from = process.env.EMAIL_FROM || 'Growth Desk for RTL <onboarding@resend.dev>';
   const provider = emailProvider();
   if (provider === 'outbox') {
     const fs = await import('node:fs/promises');
     await fs.mkdir(process.env.EMAIL_OUTBOX_DIR, { recursive: true });
     const name = `${Date.now()}-${to.replace(/[^\w@.-]/g, '_')}.html`;
-    await fs.writeFile(`${process.env.EMAIL_OUTBOX_DIR}/${name}`, `<!-- To: ${to} | From: ${from} | Subject: ${subject} -->\n${html}`);
+    await fs.writeFile(`${process.env.EMAIL_OUTBOX_DIR}/${name}`, `<!-- To: ${to} | From: ${from} | Subject: ${subject} | Attachments: ${attachments.map((a) => a.filename).join(', ')} -->\n${html}`);
+    for (const a of attachments) await fs.writeFile(`${process.env.EMAIL_OUTBOX_DIR}/${name}-${a.filename}`, a.content);
     return;
   }
   if (provider === 'resend') {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [to], subject, html, text }),
+      body: JSON.stringify({ from, to: [to], subject, html, text, ...(attachments.length ? { attachments: attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.content).toString('base64') })) } : {}) }),
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -58,7 +59,7 @@ async function deliver({ to, subject, html, text }) {
   }
   if (provider === 'smtp') {
     const t = await smtpTransport();
-    await t.sendMail({ from, to, subject, html, text });
+    await t.sendMail({ from, to, subject, html, text, attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })) });
     return;
   }
   throw new Error('No email provider configured');
@@ -68,7 +69,7 @@ async function deliver({ to, subject, html, text }) {
  * Sends one email and records the outcome. Never throws.
  * Returns { ok, status: 'sent' | 'failed' | 'skipped', error }.
  */
-export async function sendEmailResult({ to, subject, html, text, kind = null, userId = null, ref = null }) {
+export async function sendEmailResult({ to, subject, html, text, attachments = [], kind = null, userId = null, ref = null }) {
   const log = (status, error = null) =>
     query('INSERT INTO email_log (to_email, subject, kind, status, error, user_id, ref) VALUES ($1,$2,$3,$4,$5,$6,$7)',
       [to || '(none)', subject, kind, status, error, userId, ref]).catch(() => {});
@@ -78,7 +79,7 @@ export async function sendEmailResult({ to, subject, html, text, kind = null, us
   // One retry for temporary failures (network, rate limits)
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await deliver({ to, subject, html, text });
+      await deliver({ to, subject, html, text, attachments });
       await log('sent');
       return { ok: true, status: 'sent', error: null };
     } catch (e) {

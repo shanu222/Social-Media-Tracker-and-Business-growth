@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent as RPointerEvent } from 'react';
-import { CheckCircle2, Download, Eraser, LogOut, PenLine, ShieldCheck, Upload } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { CheckCircle2, Download, LogOut, ShieldCheck, Upload } from 'lucide-react';
 import { api, download } from '../api';
 import { useAuth, useData, useToast, Loading, ErrorBox } from '../lib';
 import { NdaLetter, type NdaSection, type SignedNda } from './NdaLetter';
@@ -60,8 +60,12 @@ function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) 
   const [name, setName] = useState(info.prefill.full_name);
   const [guardian, setGuardian] = useState('');
   const [cnic, setCnic] = useState('');
-  const [mode, setMode] = useState<'draw' | 'upload'>('draw');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [front, setFront] = useState<string | null>(null);
+  const [back, setBack] = useState<string | null>(null);
   const [sig, setSig] = useState<string | null>(null);
+  const [typed, setTyped] = useState('');
   const [read, setRead] = useState(false);
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -75,15 +79,26 @@ function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) 
     return () => io.disconnect();
   }, []);
 
+  const norm = (v: string) => v.toLowerCase().replace(/\s+/g, ' ').trim();
   const cnicOk = cnic.replace(/\D/g, '').length === 13;
-  const ready = name.trim().length >= 3 && cnicOk && !!sig && agree;
+  const phoneDigits = phone.replace(/\D/g, '').replace(/^92/, '0');
+  const phoneOk = /^03\d{9}$/.test(phoneDigits);
+  const typedOk = typed.trim().length >= 3 && norm(typed) === norm(name);
+  const ready = name.trim().length >= 3 && cnicOk && phoneOk && address.trim().length >= 10 && !!front && !!back && !!sig && typedOk && agree;
+  const missing = [
+    !cnicOk && 'CNIC', !phoneOk && 'mobile number', address.trim().length < 10 && 'address',
+    !front && 'CNIC front', !back && 'CNIC back', !sig && 'signature', !typedOk && 'typed name', !agree && 'agreement tick',
+  ].filter(Boolean) as string[];
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!ready) return;
     setBusy(true);
     try {
-      onSigned(await api.post<SignedNda>('/nda/sign', { full_name: name.trim(), guardian: guardian.trim() || undefined, cnic, signature: sig, agree: true }));
+      onSigned(await api.post<SignedNda>('/nda/sign', {
+        full_name: name.trim(), guardian: guardian.trim() || undefined, cnic, phone, address: address.trim(),
+        typed_name: typed.trim(), signature: sig, cnic_front: front, cnic_back: back, agree: true,
+      }));
     } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
   }
 
@@ -96,100 +111,84 @@ function SignStep({ info, onSigned }: { info: NdaInfo; onSigned: (s: SignedNda) 
 
       <form className="panel nda-form" onSubmit={submit}>
         <h2>Sign the agreement</h2>
-        <p className="muted small">Your CNIC and signature are encrypted and visible only to you and the company admin.</p>
-        <div className="field"><label htmlFor="nn">Full name (as on CNIC)</label><input id="nn" className="input" required value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
-        <div className="field"><label htmlFor="ng">Father's / husband's name <span className="faint">(optional)</span></label><input id="ng" className="input" value={guardian} onChange={(e) => setGuardian(e.target.value)} placeholder="e.g. D/O Muhammad Batool" /></div>
-        <div className="field">
-          <label htmlFor="nc">CNIC number</label>
-          <input id="nc" className="input num" inputMode="numeric" required placeholder="12345-1234567-1" value={cnic} onChange={(e) => setCnic(formatCnic(e.target.value))} aria-invalid={cnic.length > 0 && !cnicOk} />
-          {cnic.length > 0 && !cnicOk && <span className="err-text small">13 digits are needed.</span>}
-        </div>
-        <div className="field">
-          <label>Signature</label>
-          <div className="seg" role="tablist">
-            <button type="button" className={mode === 'draw' ? 'on' : ''} onClick={() => { setMode('draw'); setSig(null); }}><PenLine size={14} /> Draw</button>
-            <button type="button" className={mode === 'upload' ? 'on' : ''} onClick={() => { setMode('upload'); setSig(null); }}><Upload size={14} /> Upload image</button>
+        <p className="muted small">Your CNIC, address and images are encrypted and visible only to you and the company admin.</p>
+
+        <fieldset className="nda-fs">
+          <legend>1. Your details</legend>
+          <div className="field"><label htmlFor="nn">Full name (as on CNIC)</label><input id="nn" className="input" required value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
+          <div className="field"><label htmlFor="ng">Father's / husband's name <span className="faint">(optional)</span></label><input id="ng" className="input" value={guardian} onChange={(e) => setGuardian(e.target.value)} placeholder="e.g. D/O Muhammad Batool" /></div>
+          <div className="field">
+            <label htmlFor="nc">CNIC number</label>
+            <input id="nc" className="input num" inputMode="numeric" required placeholder="12345-1234567-1" value={cnic} onChange={(e) => setCnic(formatCnic(e.target.value))} aria-invalid={cnic.length > 0 && !cnicOk} />
+            {cnic.length > 0 && !cnicOk && <span className="err-text small">13 digits are needed.</span>}
           </div>
-          {mode === 'draw' ? <SignaturePad onChange={setSig} /> : <SignatureUpload value={sig} onChange={setSig} />}
-        </div>
-        <label className={`check ${!read ? 'faint' : ''}`}>
-          <input type="checkbox" checked={agree} disabled={!read} onChange={(e) => setAgree(e.target.checked)} />
-          <span>I have read the agreement and I agree to keep all company information, products and passwords confidential.</span>
-        </label>
-        {!read && <p className="faint small">Scroll to the end of the agreement to continue.</p>}
+          <div className="field">
+            <label htmlFor="np">Mobile number</label>
+            <input id="np" className="input num" inputMode="tel" required placeholder="0300 1234567" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={phone.length > 3 && !phoneOk} autoComplete="tel" />
+            {phone.length > 3 && !phoneOk && <span className="err-text small">Enter a Pakistani mobile number, e.g. 0300 1234567.</span>}
+          </div>
+          <div className="field"><label htmlFor="na">Home address</label><textarea id="na" className="input" rows={2} required value={address} onChange={(e) => setAddress(e.target.value)} placeholder="House, street, area, city" autoComplete="street-address" /></div>
+        </fieldset>
+
+        <fieldset className="nda-fs">
+          <legend>2. CNIC images</legend>
+          <div className="nda-cnic">
+            <ImageUpload label="Front of CNIC" hint="Clear photo, all corners visible" value={front} onChange={setFront} maxWidth={1600} />
+            <ImageUpload label="Back of CNIC" hint="Clear photo, all corners visible" value={back} onChange={setBack} maxWidth={1600} />
+          </div>
+        </fieldset>
+
+        <fieldset className="nda-fs">
+          <legend>3. Sign</legend>
+          <ImageUpload label="Your signature" hint="Sign on plain white paper and upload a clear photo or scan" value={sig} onChange={setSig} maxWidth={900} />
+          <div className="field">
+            <label htmlFor="nt">Type your full name to sign</label>
+            <input id="nt" className="input nda-typed" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={name || 'Your full name'} aria-invalid={typed.length > 2 && !typedOk} />
+            {typed.length > 2 && !typedOk && <span className="err-text small">Must match your full name: {name}</span>}
+          </div>
+          <label className={`check ${!read ? 'faint' : ''}`}>
+            <input type="checkbox" checked={agree} disabled={!read} onChange={(e) => setAgree(e.target.checked)} />
+            <span>I have read the agreement, my details are true, and I agree to keep all company information, products and passwords confidential.</span>
+          </label>
+          {!read && <p className="faint small">Scroll to the end of the agreement to continue.</p>}
+        </fieldset>
         <button className="btn btn-primary btn-lg" disabled={!ready || busy}>{busy ? 'Signing…' : 'Sign agreement'}</button>
+        {!ready && missing.length > 0 && <p className="faint small" style={{ marginTop: -6 }}>Still needed: {missing.join(', ')}.</p>}
       </form>
     </div>
   );
 }
 
-function SignaturePad({ onChange }: { onChange: (v: string | null) => void }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const drawing = useRef(false);
-  const strokes = useRef(0);
-  const last = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    const c = ref.current!;
-    const ratio = window.devicePixelRatio || 1;
-    const w = c.clientWidth, h = c.clientHeight;
-    c.width = w * ratio; c.height = h * ratio;
-    const ctx = c.getContext('2d')!;
-    ctx.scale(ratio, ratio);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 2.4; ctx.strokeStyle = '#0a1a3d';
-  }, []);
-
-  const pos = (e: RPointerEvent<HTMLCanvasElement>) => { const r = e.currentTarget.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  const down = (e: RPointerEvent<HTMLCanvasElement>) => { e.currentTarget.setPointerCapture(e.pointerId); drawing.current = true; last.current = pos(e); };
-  const move = (e: RPointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current || !last.current) return;
-    const p = pos(e), ctx = ref.current!.getContext('2d')!;
-    ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-    last.current = p; strokes.current++;
-  };
-  const up = () => {
-    if (!drawing.current) return;
-    drawing.current = false; last.current = null;
-    onChange(strokes.current > 8 ? ref.current!.toDataURL('image/png') : null);
-  };
-  const clear = () => { const c = ref.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); strokes.current = 0; onChange(null); };
-
-  return (
-    <div className="sig-pad">
-      <canvas ref={ref} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} aria-label="Draw your signature" />
-      <span className="sig-hint">Sign here with your mouse, finger or stylus</span>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={clear}><Eraser size={14} /> Clear</button>
-    </div>
-  );
-}
-
-function SignatureUpload({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+function ImageUpload({ label, hint, value, onChange, maxWidth }: { label: string; hint: string; value: string | null; onChange: (v: string | null) => void; maxWidth: number }) {
   const toast = useToast();
   function pick(file: File) {
-    if (!/^image\/(png|jpeg)$/.test(file.type)) return toast('Choose a PNG or JPG image of your signature.', true);
+    if (!/^image\/(png|jpeg)$/.test(file.type)) return toast('Choose a PNG or JPG image.', true);
+    if (file.size > 15 * 1024 * 1024) return toast('That image is too large. Choose one under 15 MB.', true);
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        // Shrink large photos so the upload stays small
-        const scale = Math.min(1, 900 / img.width);
+        // Resize so uploads stay small but readable
+        const scale = Math.min(1, maxWidth / img.width);
         const c = document.createElement('canvas');
         c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
         const ctx = c.getContext('2d')!;
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
-        onChange(c.toDataURL('image/jpeg', 0.9));
+        onChange(c.toDataURL('image/jpeg', 0.88));
       };
+      img.onerror = () => toast('That image could not be read. Try another.', true);
       img.src = String(reader.result);
     };
     reader.readAsDataURL(file);
   }
   return (
-    <div className="sig-upload">
-      {value ? <img src={value} alt="Your signature" /> : <span className="faint small">A clear photo or scan of your signature on white paper</span>}
+    <div className={`img-up ${value ? 'has' : ''}`}>
+      <span className="img-up-l">{label}</span>
+      {value ? <img src={value} alt={label} /> : <span className="faint small">{hint}</span>}
       <label className="btn btn-sm">
-        <Upload size={14} /> {value ? 'Choose another' : 'Choose image'}
-        <input type="file" accept="image/png,image/jpeg" hidden onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
+        <Upload size={14} /> {value ? 'Replace' : 'Upload'}
+        <input type="file" accept="image/png,image/jpeg" hidden onChange={(e) => { if (e.target.files?.[0]) pick(e.target.files[0]); e.target.value = ''; }} />
       </label>
     </div>
   );
