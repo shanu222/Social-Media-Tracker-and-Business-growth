@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Lock, Mail, Phone, Globe } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Phone, Globe } from 'lucide-react';
 import { BRAND } from '../brand';
 import { useAuth } from '../lib';
 
@@ -11,13 +11,15 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
+  const [caps, setCaps] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError('');
     try {
-      await login(email.trim(), password);
+      await login(email.replace(/\s+/g, '').toLowerCase(), password);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -55,11 +57,17 @@ export default function Login() {
           </div>
           <div className="field">
             <label htmlFor="email">Email</label>
-            <input id="email" className="input" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input id="email" className="input" type="email" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="password">Password</label>
-            <input id="password" className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <div className="pw-wrap">
+              <input id="password" className="input" type={show ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} required value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyUp={(e) => setCaps(e.getModifierState?.('CapsLock') ?? false)} onKeyDown={(e) => setCaps(e.getModifierState?.('CapsLock') ?? false)} />
+              <button type="button" className="pw-eye" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+            </div>
+            {caps && <span className="small" style={{ color: 'var(--amber)' }}>Caps Lock is on.</span>}
           </div>
           {error && <div className="err-text" role="alert">{error}</div>}
           <button className="btn btn-primary" style={{ height: 42 }} disabled={busy}>

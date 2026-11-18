@@ -10,19 +10,34 @@ import { ah, parse } from '../util.js';
 
 const router = Router();
 
+// Counted per network AND email, so teammates on the same office or mobile network don't block each other.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: 15,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  message: { error: 'Too many sign-in attempts. Try again in 15 minutes.' },
+  keyGenerator: (req) => `${req.ip}|${String(req.body?.email || '').trim().toLowerCase()}`,
+  message: { error: 'Too many sign-in attempts for this account. Try again in 15 minutes.' },
 });
+// Generous cap per network so one office can't be locked out together
+const loginNetworkLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 150,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts from this network. Try again in 15 minutes.' },
+});
+
+/** Removes what copy-paste adds by accident: spaces/line breaks at the ends and invisible characters. */
+const cleanPassword = (p) => p.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
 
 export const passwordSchema = z
   .string()
+  .transform((p) => cleanPassword(p))
+  .pipe(z.string()
   .min(10, 'must be at least 10 characters')
   .max(200)
-  .refine((p) => /[A-Za-z]/.test(p) && /\d/.test(p), 'must contain letters and numbers');
+  .refine((p) => /[A-Za-z]/.test(p) && /\d/.test(p), 'must contain letters and numbers'));
 
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
@@ -31,26 +46,42 @@ const DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', 12);
 
 router.post(
   '/login',
+  loginNetworkLimiter,
   loginLimiter,
   ah(async (req, res) => {
-    const { email, password } = parse(
-      z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) }),
-      req.body
-    );
-    const user = await one('SELECT * FROM users WHERE lower(email) = lower($1)', [email]);
-    if (user?.locked_until && new Date(user.locked_until) > new Date()) {
-      return res.status(429).json({ error: 'This account is locked after too many failed attempts. Try again in 15 minutes.' });
+    const body = z.object({ email: z.string(), password: z.string() }).safeParse(req.body);
+    const email = body.success ? body.data.email.replace(/\s+/g, '').toLowerCase() : '';
+    const password = body.success ? body.data.password : '';
+    if (!email || !password || password.length > 200 || !z.string().email().safeParse(email).success) {
+      return res.status(400).json({ error: 'Enter your email and password.' });
     }
-    const ok = await bcrypt.compare(password, user?.password_hash || DUMMY_HASH);
-    if (!user || !ok || !user.active) {
+    const user = await one('SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL', [email]);
+    if (user?.locked_until && new Date(user.locked_until) > new Date()) {
+      const mins = Math.max(1, Math.ceil((new Date(user.locked_until) - Date.now()) / 60000));
+      return res.status(429).json({ error: `Too many wrong passwords. This account is paused for ${mins} more minute${mins === 1 ? '' : 's'}, or ask the admin to unlock it.` });
+    }
+    // Accept the password as typed, or without accidental spaces/invisible characters from copy-paste
+    let ok = await bcrypt.compare(password, user?.password_hash || DUMMY_HASH);
+    const cleaned = cleanPassword(password);
+    if (!ok && user && cleaned && cleaned !== password) ok = await bcrypt.compare(cleaned, user.password_hash);
+    if (ok && user && !user.active) {
+      return res.status(403).json({ error: 'This account is turned off. Please contact the admin.' });
+    }
+    if (!user || !ok) {
       if (user) {
         const fails = user.failed_logins + 1;
+        // After MAX_FAILS wrong passwords in a row the account pauses for LOCK_MINUTES (the admin can unlock it)
+        const lock = fails >= MAX_FAILS;
         await query(
           `UPDATE users SET failed_logins = $2,
-             locked_until = CASE WHEN $2 >= ${MAX_FAILS} THEN now() + interval '${LOCK_MINUTES} minutes' ELSE NULL END
+             locked_until = CASE WHEN $3 THEN now() + interval '${LOCK_MINUTES} minutes' ELSE NULL END
            WHERE id = $1`,
-          [user.id, fails >= MAX_FAILS ? 0 : fails]
+          [user.id, lock ? 0 : fails, lock]
         );
+        if (lock) {
+          await audit({ user: { id: user.id }, ip: req.ip }, 'login.locked', 'user', user.id);
+          return res.status(429).json({ error: `Too many wrong passwords. This account is paused for ${LOCK_MINUTES} minutes, or ask the admin to unlock it.` });
+        }
         await audit({ user: { id: user.id }, ip: req.ip }, 'login.failed', 'user', user.id);
       }
       return res.status(401).json({ error: 'Email or password is incorrect.' });

@@ -7,7 +7,7 @@ import { download } from '../api';
 import { api, setToken } from '../api';
 import { useAuth, useData, useToast, Modal, Loading, bytes, ROLE_LABEL, type Role } from '../lib';
 
-interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; title?: string | null; can_message_team?: boolean; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
+interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; title?: string | null; can_message_team?: boolean; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean; locked_until?: string | null; failed_logins?: number }
 interface Audit { id: number; action: string; entity: string | null; entity_id: string | null; ip: string | null; created_at: string; user_name: string | null }
 interface Status { storageEnabled: boolean; timezone: string; backupSchedule: string; lastBackup: { created_at: string; size: number } | null }
 
@@ -358,6 +358,13 @@ function UsersPanel() {
       setRemoving(null); reload(); removedList.reload();
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   }
+  async function unlock(u: U) {
+    try { await api.patch(`/users/${u.id}`, {}); toast(`${u.name} can sign in again`); reload(); } catch (e) { toast((e as Error).message, true); }
+  }
+  async function copyDetails(e: PersonForm) {
+    const text = `Growth Desk for RTL\nSign in: ${window.location.origin}\nEmail: ${e.email.trim().toLowerCase()}\nPassword: ${e.password.trim()}\n\nPlease keep these details private.`;
+    try { await navigator.clipboard.writeText(text); toast('Sign-in details copied'); } catch { toast('Could not copy. Select the password and copy it manually.', true); }
+  }
   async function toggleActive(u: U) {
     try { await api.patch(`/users/${u.id}`, { active: !u.active }); toast(u.active ? `${u.name} disabled` : `${u.name} enabled`); reload(); } catch (e) { toast((e as Error).message, true); }
   }
@@ -386,7 +393,7 @@ function UsersPanel() {
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
               <td>{u.role === 'admin' ? <span className="faint">Not needed</span> : (() => { const n = ndas.data?.find((x) => x.user_id === u.id); return n?.id ? <button className="btn btn-sm btn-ghost" onClick={() => setViewNda(u)} title={`CNIC ${n.cnic_masked}`}><ShieldCheck size={14} /> Signed {when(n.signed_at!).split(',')[0]}</button> : <span className="badge badge-warn">Pending</span>; })()}</td>
-              <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
+              <td>{u.locked_until ? <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><span className="badge badge-bad" title={`Too many wrong passwords. Unlocks at ${when(u.locked_until)}`}>Locked</span><button className="btn btn-sm" onClick={() => unlock(u)}>Unlock</button></span> : !u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
                 <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email_notifications: u.email_notifications !== false, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
                 {u.id !== user?.id && <button className="btn btn-sm btn-ghost" onClick={() => toggleActive(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
@@ -434,7 +441,7 @@ function UsersPanel() {
       )}
       {editing && (
         <Modal title={isNew ? 'Add a team member' : `Edit ${editing.name}`} onClose={() => setEditing(null)}
-          footer={<><button className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" form="person-form" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add person' : 'Save changes'}</button></>}>
+          footer={<>{editing.password && editing.email && <button type="button" className="btn btn-ghost" style={{ marginRight: 'auto' }} onClick={() => copyDetails(editing)}>Copy sign-in details</button>}<button className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" form="person-form" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Add person' : 'Save changes'}</button></>}>
           <form id="person-form" className="form-grid" onSubmit={save}>
             <div className="field"><label htmlFor="pnm">Name</label><input id="pnm" className="input" required value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Maryam Batool" /></div>
             <div className="field"><label htmlFor="pti">Job title</label><input id="pti" className="input" maxLength={100} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="e.g. Marketing Manager" /><span className="hint">Shown on their profile and messages.</span></div>

@@ -21,7 +21,8 @@ router.get(
     res.json(
       await many(
         `SELECT id, ${removed ? 'former_email AS email' : 'email'}, notify_email, email_notifications, name, title, can_message_team, role, active,
-           last_login_at, created_at, must_change_password, deleted_at
+           last_login_at, created_at, must_change_password, deleted_at, failed_logins,
+           CASE WHEN locked_until > now() THEN locked_until END AS locked_until
          FROM users WHERE deleted_at IS ${removed ? 'NOT NULL' : 'NULL'} ORDER BY ${removed ? 'deleted_at DESC' : 'created_at'}`
       )
     );
@@ -32,7 +33,7 @@ router.post(
   '/',
   ah(async (req, res) => {
     const body = parse(
-      z.object({ email: z.string().email().max(200), notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(), name: z.string().min(1).max(100), title: z.string().trim().max(100).optional(), can_message_team: z.boolean().optional(), role, password: passwordSchema }),
+      z.object({ email: z.string().trim().toLowerCase().email().max(200), notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(), name: z.string().min(1).max(100), title: z.string().trim().max(100).optional(), can_message_team: z.boolean().optional(), role, password: passwordSchema }),
       req.body
     );
     const exists = await one('SELECT 1 FROM users WHERE lower(email) = lower($1)', [body.email]);
@@ -53,7 +54,7 @@ router.patch(
     const body = parse(
       z.object({
         name: z.string().min(1).max(100).optional(),
-        email: z.string().email().max(200).optional(),
+        email: z.string().trim().toLowerCase().email().max(200).optional(),
         notify_email: z.string().trim().email().max(200).or(z.literal('')).optional(),
         role: role.optional(),
         title: z.string().trim().max(100).optional(),

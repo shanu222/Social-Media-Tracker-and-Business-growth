@@ -68,9 +68,14 @@ app.use(
   '/api',
   rateLimit({
     windowMs: 60 * 1000,
-    limit: Number(process.env.API_RATE_LIMIT || 300),
+    limit: Number(process.env.API_RATE_LIMIT || 600),
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    // Per signed-in person (their session), so a team sharing one office/mobile network doesn't share a limit
+    keyGenerator: (req) => {
+      const h = req.headers.authorization || '';
+      return h.startsWith('Bearer ') ? `t:${h.slice(-32)}` : `ip:${req.ip}`;
+    },
     message: { error: 'Too many requests. Wait a minute and try again.' },
   })
 );
