@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { NDA_VERSION } from '../services/nda.js';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -58,7 +59,8 @@ router.post(
     await audit({ user, ip: req.ip }, 'login.success', 'user', user.id);
     res.json({
       token: signToken(user),
-      user: { id: user.id, email: user.email, name: user.name, title: user.title, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password },
+      user: { id: user.id, email: user.email, name: user.name, title: user.title, role: user.role, must_change_password: user.role === 'admin' && user.must_change_password,
+        nda_required: user.role !== 'admin' && !(await one('SELECT 1 FROM nda_signatures WHERE user_id = $1 AND version = $2', [user.id, NDA_VERSION])) },
     });
   })
 );
@@ -68,7 +70,7 @@ router.get(
   requireAuth,
   ah(async (req, res) => {
     const u = await one('SELECT id, email, name, title, role, must_change_password, email_notifications, notify_email, can_message_team FROM users WHERE id = $1', [req.user.id]);
-    res.json({ user: { ...u, must_change_password: u.role === 'admin' && u.must_change_password } });
+    res.json({ user: { ...u, must_change_password: u.role === 'admin' && u.must_change_password, nda_required: u.role !== 'admin' && !req.user.nda_signed } });
   })
 );
 

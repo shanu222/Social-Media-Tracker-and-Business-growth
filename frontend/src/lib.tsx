@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { X, CheckCircle2, AlertCircle } from 'lucide-react';
-import { api, setToken, setUnauthorizedHandler, hasToken } from './api';
+import { api, setToken, setUnauthorizedHandler, setNdaRequiredHandler, hasToken } from './api';
 
 /* ---------------- Types ---------------- */
 export type Role = 'admin' | 'manager' | 'viewer';
-export interface User { id: number; email: string; name: string; title?: string | null; role: Role; must_change_password?: boolean; can_message_team?: boolean }
+export interface User { id: number; email: string; name: string; title?: string | null; role: Role; must_change_password?: boolean; can_message_team?: boolean; nda_required?: boolean }
 export const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', manager: 'Social media manager', viewer: 'Viewer' };
 
 export const PLATFORMS: { id: string; label: string; color: string }[] = [
@@ -105,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
+    setNdaRequiredHandler(() => setUser((u) => (u ? { ...u, nda_required: true } : u)));
     if (!hasToken()) {
       setReady(true);
       return;

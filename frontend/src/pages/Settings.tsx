@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, DatabaseBackup, Gauge, Globe, MessagesSquare, Trash2, UserX, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, Download, Gauge, Globe, MessagesSquare, Trash2, UserX, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { BRAND } from '../brand';
+import { NdaLetter, type SignedNda } from './NdaLetter';
+import { download } from '../api';
 import { api, setToken } from '../api';
-import { useAuth, useData, useToast, Modal, bytes, ROLE_LABEL, type Role } from '../lib';
+import { useAuth, useData, useToast, Modal, Loading, bytes, ROLE_LABEL, type Role } from '../lib';
 
 interface U { id: number; email: string; notify_email: string | null; email_notifications?: boolean; name: string; title?: string | null; can_message_team?: boolean; role: Role; active: boolean; last_login_at: string | null; must_change_password?: boolean }
 interface Audit { id: number; action: string; entity: string | null; entity_id: string | null; ip: string | null; created_at: string; user_name: string | null }
@@ -47,6 +49,7 @@ export default function Settings() {
           <a href={BRAND.website} target="_blank" rel="noreferrer noopener"><Globe /> {BRAND.websiteLabel}</a>
         </div>
       </div>
+      {!can('admin') && <MyNda />}
       <div className="stack" style={{ marginBottom: 16 }}>
         {can('admin') && (
         <form className="panel panel-pad stack" style={{ gap: 12 }} onSubmit={changePw}>
@@ -320,6 +323,8 @@ function UsersPanel() {
   const [editing, setEditing] = useState<PersonForm | null>(null);
   const [busy, setBusy] = useState(false);
   const removedList = useData<(U & { deleted_at: string })[]>('/users?removed=true');
+  const ndas = useData<{ user_id: number; id: number | null; signed_at: string | null; cnic_masked: string | null }[]>('/nda/signatures');
+  const [viewNda, setViewNda] = useState<U | null>(null);
   const [removing, setRemoving] = useState<U | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
 
@@ -371,7 +376,7 @@ function UsersPanel() {
       </div>
       <div className="table-wrap" style={{ padding: 8 }}>
         <table className="t">
-          <thead><tr><th>Name</th><th>Job title</th><th>Login email</th><th>Notifications to</th><th>Role</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Job title</th><th>Login email</th><th>Notifications to</th><th>Role</th><th>Last sign-in</th><th>NDA</th><th>Status</th><th /></tr></thead>
           <tbody>{data?.map((u) => (
             <tr key={u.id}>
               <td><b>{u.name}</b>{u.id === user?.id && <span className="faint"> (you)</span>}</td>
@@ -380,6 +385,7 @@ function UsersPanel() {
               <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge badge-warn">Emails off</span></div>}</td>
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
+              <td>{u.role === 'admin' ? <span className="faint">Not needed</span> : (() => { const n = ndas.data?.find((x) => x.user_id === u.id); return n?.id ? <button className="btn btn-sm btn-ghost" onClick={() => setViewNda(u)} title={`CNIC ${n.cnic_masked}`}><ShieldCheck size={14} /> Signed {when(n.signed_at!).split(',')[0]}</button> : <span className="badge badge-warn">Pending</span>; })()}</td>
               <td>{!u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
                 <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email_notifications: u.email_notifications !== false, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
@@ -414,6 +420,7 @@ function UsersPanel() {
           )}
         </div>
       )}
+      {viewNda && <NdaViewer person={viewNda} onClose={() => setViewNda(null)} onReset={() => { setViewNda(null); ndas.reload(); }} />}
       {removing && (
         <Modal title={`Remove ${removing.name}?`} onClose={() => setRemoving(null)} footer={
           <><button className="btn" onClick={() => setRemoving(null)}>Cancel</button><button className="btn btn-stop" disabled={busy} onClick={remove}><Trash2 size={15} /> {busy ? 'Removing…' : 'Remove member'}</button></>
@@ -486,6 +493,45 @@ function AuditPanel() {
           ))}</tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Admin: a team member's signed agreement, with download and "ask to sign again". */
+function NdaViewer({ person, onClose, onReset }: { person: { id: number; name: string }; onClose: () => void; onReset: () => void }) {
+  const toast = useToast();
+  const { data, error } = useData<SignedNda>(`/nda/user/${person.id}`);
+  async function reset() {
+    if (!window.confirm(`Ask ${person.name} to sign again? Their current signature is removed and they must sign before using the workspace.`)) return;
+    try { await api.post(`/nda/user/${person.id}/reset`, {}); toast(`${person.name} will be asked to sign again`); onReset(); } catch (e) { toast((e as Error).message, true); }
+  }
+  return (
+    <Modal title={`Confidentiality agreement — ${person.name}`} onClose={onClose} wide footer={
+      <><button className="btn btn-ghost btn-danger" onClick={reset}>Ask to sign again</button>
+        <button className="btn" onClick={() => download(`/nda/user/${person.id}/pdf`, `NDA-${person.name}.pdf`).catch((e) => toast(e.message, true))}><Download size={15} /> Download PDF</button>
+        <button className="btn btn-primary" onClick={onClose}>Close</button></>
+    }>
+      {error ? <p className="err-text">{error}</p> : !data ? <Loading /> : <div className="nda-paper"><NdaLetter title="Non-Disclosure and Confidentiality Agreement" sections={data.sections} signed={data} /></div>}
+    </Modal>
+  );
+}
+
+/** Team member: their own signed agreement. */
+function MyNda() {
+  const toast = useToast();
+  const { data } = useData<{ signed: boolean; title: string; signature: SignedNda | null }>('/nda');
+  const [open, setOpen] = useState(false);
+  if (!data?.signed || !data.signature) return null;
+  return (
+    <div className="panel panel-pad" style={{ marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div><h2>My confidentiality agreement</h2><p className="muted" style={{ marginTop: 4 }}>Signed on {new Date(data.signature.signed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p></div>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn" onClick={() => setOpen(true)}>View</button>
+          <button className="btn" onClick={() => download('/nda/pdf', 'NDA.pdf').catch((e) => toast(e.message, true))}><Download size={15} /> Download PDF</button>
+        </div>
+      </div>
+      {open && <Modal title={data.title} onClose={() => setOpen(false)} wide footer={<button className="btn btn-primary" onClick={() => setOpen(false)}>Close</button>}><div className="nda-paper"><NdaLetter title={data.title} sections={data.signature.sections} signed={data.signature} /></div></Modal>}
     </div>
   );
 }

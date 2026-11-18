@@ -461,6 +461,24 @@ CREATE TABLE IF NOT EXISTS announcement_reminders (
 // v5 — KPIs per product: product type, product-scoped metrics, automatic social metrics
 const SCHEMA_V5 = `
 ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+-- Signed NDAs: one row per person per NDA version. CNIC and signature are encrypted.
+CREATE TABLE IF NOT EXISTS nda_signatures (
+  id           SERIAL PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  version      TEXT NOT NULL,
+  full_name    TEXT NOT NULL,
+  guardian     TEXT,
+  role_title   TEXT,
+  cnic_enc     TEXT NOT NULL,
+  cnic_masked  TEXT NOT NULL,
+  signature_enc BYTEA NOT NULL,
+  signature_type TEXT NOT NULL,
+  doc_hash     TEXT NOT NULL,
+  ip           TEXT,
+  user_agent   TEXT,
+  signed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, version)
+);
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

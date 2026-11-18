@@ -759,3 +759,62 @@ a.att:hover { filter: brightness(0.97); }
 .cl-group-row td { font-size: 11.5px; font-weight: 700; color: var(--signal); padding-top: 14px !important; padding-bottom: 4px !important; border-bottom: 0 !important; background: transparent !important; }
 .cl-today { display: none; }
 @media (max-width: 700px) { .cl-today { display: block; } .cl-week { display: none; } }
+
+/* ---------- NDA ---------- */
+.nda-page { min-height: 100vh; background: radial-gradient(900px 400px at 100% 0%, rgba(18, 181, 232, .10), transparent 60%), var(--canvas); padding: 20px 24px 60px; }
+.nda-top { max-width: 1240px; margin: 0 auto 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.nda-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.nda-steps span { display: inline-flex; gap: 6px; align-items: center; padding: 6px 12px; border-radius: 999px; background: #fff; font-size: 13px; color: var(--muted); box-shadow: var(--shadow); }
+.nda-steps span.on { background: var(--ink); color: #fff; }
+.nda-steps span.done { color: #0b7f66; }
+.nda-grid { max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+.nda-paper { background: #fff; border-radius: 14px; box-shadow: 0 10px 40px -18px rgba(10, 26, 61, .35); padding: 40px 48px; position: relative; overflow: hidden; }
+.nda-paper.scroll { max-height: calc(100vh - 110px); overflow-y: auto; }
+.nda-paper::before { content: ''; position: absolute; inset: 0; background: url('/rtl-logo.png') center 45% / 300px no-repeat; opacity: .035; pointer-events: none; }
+.nda-letter { position: relative; font-family: var(--font-body); color: #1b2433; }
+.nda-head { display: flex; gap: 14px; align-items: center; }
+.nda-head img { width: 56px; height: 56px; }
+.nda-head b { display: block; font-family: var(--font-display); font-size: 17px; color: var(--ink); }
+.nda-head span { font-size: 12px; color: var(--muted); }
+.nda-rule { height: 3px; border-radius: 2px; background: var(--brand-grad); margin: 14px 0 22px; }
+.nda-letter h1 { font-size: 22px; text-align: center; color: var(--ink); }
+.nda-date { text-align: center; color: var(--muted); font-size: 13px; margin-top: 4px; }
+.nda-letter section { margin-top: 16px; }
+.nda-letter h2 { font-size: 14.5px; color: var(--ink); margin-bottom: 4px; }
+.nda-letter p { font-size: 14px; line-height: 1.65; text-align: justify; }
+.nda-note { background: #eef6ff; border-left: 3px solid var(--signal); border-radius: 8px; padding: 12px 14px; }
+.nda-note h2 { color: var(--signal); }
+.nda-end { text-align: center; color: var(--faint); font-size: 12px; margin-top: 26px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.nda-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 28px; }
+.nda-sign-box { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; background: rgba(255, 255, 255, .85); }
+.nda-sign-box .lbl { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.nda-sign-box img { height: 64px; max-width: 100%; object-fit: contain; object-position: left; margin: 8px 0 4px; }
+.nda-sign-box img.seal { height: 52px; }
+.nda-sign-box .line { border-top: 1px solid #8a95a5; margin-bottom: 6px; }
+.nda-sign-box b { color: var(--ink); font-size: 14px; }
+.nda-evidence { font-size: 11.5px !important; color: var(--faint); margin-top: 14px; text-align: left !important; }
+.nda-form { padding: 22px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
+.nda-form h2 { font-size: 19px; }
+.nda-form .seg { margin-bottom: 8px; }
+.sig-pad { position: relative; border: 1.5px dashed #b9c4d3; border-radius: 10px; background: #fbfcfe; }
+.sig-pad canvas { width: 100%; height: 150px; display: block; touch-action: none; cursor: crosshair; }
+.sig-pad .sig-hint { position: absolute; left: 12px; bottom: 8px; font-size: 11.5px; color: var(--faint); pointer-events: none; }
+.sig-pad .btn { position: absolute; right: 6px; top: 6px; }
+.sig-upload { border: 1.5px dashed #b9c4d3; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; background: #fbfcfe; }
+.sig-upload img { max-height: 110px; max-width: 100%; object-fit: contain; }
+.nda-done { max-width: 900px; margin: 0 auto; }
+.nda-done-head { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; background: #e7f7f0; color: #0d5a40; border-radius: 14px; padding: 16px 20px; margin-bottom: 16px; }
+.nda-done-head > div:nth-child(2) { flex: 1; min-width: 220px; }
+.nda-done-head h2 { font-size: 18px; color: #0d5a40; }
+.nda-done-head p { font-size: 13.5px; }
+.nda-bottom { text-align: center; margin-top: 20px; }
+@media (max-width: 960px) {
+  .nda-grid { grid-template-columns: minmax(0, 1fr); }
+  .nda-paper.scroll { max-height: 60vh; }
+  .nda-form { position: static; }
+}
+@media (max-width: 560px) {
+  .nda-page { padding: 14px 12px 40px; }
+  .nda-paper { padding: 24px 18px; }
+  .nda-sign { grid-template-columns: 1fr; }
+}

@@ -355,3 +355,17 @@ On phones the checklist shows a simple *Today* list instead of the week grid.
 
 On first start after this update, the old shared social tasks are retired (their history is kept), and every
 product gets its routine.
+
+## Confidentiality agreement (NDA)
+
+Every team member except admins signs the company's Non-Disclosure and Confidentiality Agreement before using the
+workspace. This includes people who already had accounts: they are asked the next time they open the app. Until they
+sign, every API request except sign-in and the NDA itself is refused with `NDA_REQUIRED`.
+
+- **Signing:** they read the full letter, enter their full name, optional father's/husband's name and CNIC, and draw
+  or upload their signature. They then see their complete signed copy, can download it as a PDF, and continue.
+- **Evidence:** the CNIC and signature image are stored encrypted, with the sign-in IP, browser and a SHA-256
+  fingerprint of the exact text agreed to.
+- **Admin:** Settings → Team has an **NDA** column. **Signed** opens the full letter, with *Download PDF* and
+  *Ask to sign again*. Team members can re-download their own copy in Settings.
+- **Changing the wording:** edit `backend/src/services/nda.js` and bump `NDA_VERSION`. Everyone then signs the new version.

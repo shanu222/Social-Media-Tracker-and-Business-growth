@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { one } from './db.js';
 import { hideSecurityFromNonAdmins } from './adminOnly.js';
+import { NDA_VERSION } from './services/nda.js';
 
 export function signToken(user) {
   return jwt.sign({ sub: user.id, v: user.token_version, role: user.role }, config.jwtSecret, {
@@ -20,8 +21,10 @@ export async function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: 'Sign in to continue.' });
     const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'], issuer: 'growth-desk' });
     const user = await one(
-      'SELECT id, email, name, title, role, active, token_version, must_change_password, can_message_team FROM users WHERE id = $1',
-      [payload.sub]
+      `SELECT id, email, name, title, role, active, token_version, must_change_password, can_message_team,
+         EXISTS (SELECT 1 FROM nda_signatures n WHERE n.user_id = users.id AND n.version = $2) AS nda_signed
+       FROM users WHERE id = $1`,
+      [payload.sub, NDA_VERSION]
     );
     if (!user || !user.active || user.token_version !== payload.v) {
       return res.status(401).json({ error: 'Your session has ended. Sign in again.' });

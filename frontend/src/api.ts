@@ -9,6 +9,10 @@ try {
 }
 
 let onUnauthorized: (() => void) | null = null;
+let onNdaRequired: (() => void) | null = null;
+export function setNdaRequiredHandler(fn: () => void) {
+  onNdaRequired = fn;
+}
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
@@ -53,6 +57,7 @@ async function request<T>(method: string, path: string, body?: unknown, isForm =
   const ct = res.headers.get('content-type') || '';
   if (!res.ok) {
     const data = ct.includes('json') ? await res.json().catch(() => ({})) : {};
+    if (data.code === 'NDA_REQUIRED') onNdaRequired?.();
     throw new ApiError(data.error || `Request failed (${res.status})`, res.status);
   }
   if (ct.includes('json')) return res.json();

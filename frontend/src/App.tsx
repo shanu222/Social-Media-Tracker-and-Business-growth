@@ -14,6 +14,7 @@ import { useAuth, Loading, ROLE_LABEL } from './lib';
 import Notifications from './Notifications';
 import Login from './pages/Login';
 import FirstPassword from './pages/FirstPassword';
+import NdaGate from './pages/NdaGate';
 import Dashboard from './pages/Dashboard';
 import DailyUpdate from './pages/DailyUpdate';
 import Accounts from './pages/Accounts';
@@ -97,6 +98,7 @@ export default function App() {
   if (!ready) return <Loading />;
   if (!user) return <Login />;
   if (user.must_change_password && user.role === 'admin') return <FirstPassword />;
+  if (user.nda_required) return <NdaGate />;
   const isAdmin = can('admin');
 
   return (

@@ -30,6 +30,7 @@ import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
 import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import { upgradeToProductChecklists } from './services/checklistTemplates.js';
+import ndaRoutes, { requireNda } from './routes/nda.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -60,6 +61,8 @@ app.use(
   })
 );
 app.use(compression());
+// Signature images need a little more room
+app.use('/api/nda', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(
   '/api',
@@ -94,7 +97,8 @@ function requireFreshPassword(req, res, next) {
   }
   next();
 }
-const auth = [requireAuth, requireFreshPassword];
+const auth = [requireAuth, requireFreshPassword, requireNda];
+app.use('/api/nda', requireAuth, ndaRoutes);
 app.use('/api/products/:productId(\\d+)/tasks', auth, productTasks);
 app.use('/api/products/:productId(\\d+)/posts', auth, postRoutes);
 app.use('/api/products/:productId(\\d+)/messages', auth, messageRoutes);
