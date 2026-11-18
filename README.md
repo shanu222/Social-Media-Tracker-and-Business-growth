@@ -371,3 +371,5 @@ sign, every API request except sign-in and the NDA itself is refused with `NDA_R
 - **Admin:** Settings → Team has an **NDA** column. **Signed** opens the full letter, with *Download PDF* and
   *Ask to sign again*. Team members can re-download their own copy in Settings.
 - **Changing the wording:** edit `backend/src/services/nda.js` and bump `NDA_VERSION`. Everyone then signs the new version.
+
+- **NDA records (admin):** Settings → NDA records lists every agreement ever signed — current, replaced (after "Ask to sign again"), signed on an earlier version, and removed members — plus who has not signed yet. Admins can view and download the PDF of any of them; older copies show the exact wording that was signed. Team members only ever see and download their own.

@@ -66,7 +66,7 @@ function present(sig) {
     signature: url(sig.signature_enc, sig.signature_type),
     cnic_front: url(sig.cnic_front_enc, sig.cnic_front_type),
     cnic_back: url(sig.cnic_back_enc, sig.cnic_back_type),
-    sections: ndaSections({ name: sig.full_name + (sig.guardian ? ` (${sig.guardian})` : ''), cnic, role: sig.role_title || 'Team Member' }),
+    sections: ndaSections({ name: sig.full_name + (sig.guardian ? ` (${sig.guardian})` : ''), cnic, role: sig.role_title || 'Team Member' }, sig.version),
   };
 }
 
@@ -193,6 +193,50 @@ router.get('/user/:userId(\\d+)/pdf', requireRole('admin'), ah(async (req, res) 
   const sig = await signedFor(Number(req.params.userId));
   if (!sig) return res.status(404).json({ error: 'Not signed yet.' });
   await audit(req, 'nda.downloaded', 'user', req.params.userId);
+  await sendPdf(res, sig);
+}));
+
+/**
+ * Admin: every agreement ever signed — current, replaced ("ask to sign again") and older versions,
+ * including removed members — plus who has not signed the current version yet.
+ */
+router.get('/records', requireRole('admin'), ah(async (_req, res) => {
+  const records = await many(
+    `SELECT s.id, s.user_id, s.version, s.full_name, s.role_title, s.cnic_masked, s.phone, s.signed_at, s.superseded_at, s.reset_reason,
+       u.name AS user_name, u.email, u.deleted_at IS NOT NULL AS removed,
+       CASE WHEN s.superseded_at IS NOT NULL THEN 'replaced' WHEN s.version = $1 THEN 'current' ELSE 'old_version' END AS status
+     FROM nda_signatures s JOIN users u ON u.id = s.user_id
+     ORDER BY s.signed_at DESC`, [NDA_VERSION]
+  );
+  const unsigned = await many(
+    `SELECT u.id AS user_id, u.name AS user_name, u.email, u.title, u.active,
+       (SELECT json_build_object('at', p.superseded_at, 'reason', p.reset_reason) FROM nda_signatures p
+         WHERE p.user_id = u.id AND p.superseded_at IS NOT NULL ORDER BY p.superseded_at DESC LIMIT 1) AS resign
+     FROM users u
+     WHERE u.role <> 'admin' AND u.deleted_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM nda_signatures s WHERE s.user_id = u.id AND s.version = $1 AND s.superseded_at IS NULL)
+     ORDER BY u.name`, [NDA_VERSION]
+  );
+  res.json({ version: NDA_VERSION, records, unsigned });
+}));
+
+async function recordById(req, res) {
+  const sig = await one('SELECT * FROM nda_signatures WHERE id = $1', [Number(req.params.id)]);
+  if (!sig) { res.status(404).json({ error: 'Agreement not found.' }); return null; }
+  return sig;
+}
+
+router.get('/record/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
+  const sig = await recordById(req, res);
+  if (!sig) return;
+  await audit(req, 'nda.viewed', 'user', sig.user_id, { record: sig.id });
+  res.json({ ...present(sig), superseded_at: sig.superseded_at, reset_reason: sig.reset_reason, current: !sig.superseded_at && sig.version === NDA_VERSION });
+}));
+
+router.get('/record/:id(\\d+)/pdf', requireRole('admin'), ah(async (req, res) => {
+  const sig = await recordById(req, res);
+  if (!sig) return;
+  await audit(req, 'nda.downloaded', 'user', sig.user_id, { record: sig.id });
   await sendPdf(res, sig);
 }));
 

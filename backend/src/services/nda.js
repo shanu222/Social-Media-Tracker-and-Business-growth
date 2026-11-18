@@ -8,8 +8,12 @@ import { BRAND } from '../brand.js';
 export const NDA_VERSION = '2026-11-v2';
 export const NDA_TITLE = 'Non-Disclosure and Confidentiality Agreement';
 
-/** The agreement as sections; `{name}`, `{cnic}`, `{role}` are filled in for display and PDF. */
-export function ndaSections({ name = '[Full name]', cnic = '[CNIC]', role = '[Role]' } = {}) {
+/**
+ * The agreement as sections; `{name}`, `{cnic}`, `{role}` are filled in for display and PDF.
+ * Pass the version a person signed to get exactly the text they agreed to (older versions are kept below).
+ */
+export function ndaSections({ name = '[Full name]', cnic = '[CNIC]', role = '[Role]' } = {}, version = NDA_VERSION) {
+  if (version !== NDA_VERSION && OLD_TEXTS[version]) return OLD_TEXTS[version]({ name, cnic, role });
   return [
     {
       heading: null,
@@ -74,10 +78,26 @@ export function ndaSections({ name = '[Full name]', cnic = '[CNIC]', role = '[Ro
   ];
 }
 
+/** Earlier versions, kept word for word so old signed copies show what was actually signed. */
+const OLD_TEXTS = {
+  '2026-11-v1': ({ name, cnic, role }) => {
+    const cur = ndaSections({ name, cnic, role });
+    const pick = (h) => cur.find((s) => s.heading === h);
+    return [
+      cur[0], cur[1], pick('1. Confidential information'), pick('2. What you agree to'), pick('3. Accounts and passwords'),
+      pick('4. What is not confidential'), pick('5. Company property and work'),
+      { heading: '6. Responsibility', body: 'You are responsible for keeping this agreement. If confidential information or account access is disclosed or misused through you, you will be held responsible for it. Depending on the seriousness, this may lead to ending your engagement with the Company, recovery of any loss caused, and action available under the laws of Pakistan.' },
+      { heading: '7. Duration', body: 'This agreement applies from the date you sign it, throughout your work with the Company, and for three (3) years after it ends. Obligations about passwords, account access, source code and user data continue without a time limit.' },
+      { heading: '8. Governing law', body: 'This agreement is governed by the laws of the Islamic Republic of Pakistan, and the courts of Islamabad have jurisdiction.' },
+      { heading: 'Declaration', body: `I, ${name}, holder of CNIC ${cnic}, have read and understood this agreement. I agree to keep all Company information, products and passwords confidential and to follow this agreement. I sign it of my own free will.` },
+    ];
+  },
+};
+
 /** Hash of the exact text the person agreed to (stored with the signature as evidence). */
-export function ndaHash(fields) {
-  const text = ndaSections(fields).map((s) => `${s.heading || ''}\n${s.body}`).join('\n\n');
-  return crypto.createHash('sha256').update(`${NDA_VERSION}\n${NDA_TITLE}\n${text}`).digest('hex');
+export function ndaHash(fields, version = NDA_VERSION) {
+  const text = ndaSections(fields, version).map((s) => `${s.heading || ''}\n${s.body}`).join('\n\n');
+  return crypto.createHash('sha256').update(`${version}\n${NDA_TITLE}\n${text}`).digest('hex');
 }
 
 /** Pakistani CNIC: 13 digits, shown as 12345-1234567-1 */

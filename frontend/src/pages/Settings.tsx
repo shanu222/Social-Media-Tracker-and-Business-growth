@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, DatabaseBackup, Download, Gauge, Globe, MessagesSquare, Trash2, UserX, KeyRound, LogOut, Mail, Phone, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, Download, Gauge, Globe, MessagesSquare, Trash2, UserX, KeyRound, LogOut, Mail, Phone, Plus, Search, ShieldCheck, Sparkles } from 'lucide-react';
 import { BRAND } from '../brand';
 import { NdaLetter, type SignedNda } from './NdaLetter';
 import { download } from '../api';
@@ -71,6 +71,7 @@ export default function Settings() {
       <EmailPrefs />
       {can('admin') && <EmailAndAi />}
       {can('admin') && <UsersPanel />}
+      {can('admin') && <NdaRecords />}
       {can('admin') && <AuditPanel />}
     </>
   );
@@ -324,7 +325,7 @@ function UsersPanel() {
   const [busy, setBusy] = useState(false);
   const removedList = useData<(U & { deleted_at: string })[]>('/users?removed=true');
   const ndas = useData<{ user_id: number; id: number | null; signed_at: string | null; cnic_masked: string | null; resign: { at: string; reason: string | null } | null }[]>('/nda/signatures');
-  const [viewNda, setViewNda] = useState<U | null>(null);
+  const [viewNda, setViewNda] = useState<{ id: number; name: string } | null>(null);
   const [removing, setRemoving] = useState<U | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
 
@@ -392,7 +393,7 @@ function UsersPanel() {
               <td>{u.notify_email || <span className="faint">{u.email}</span>}{u.email_notifications === false && <div><span className="badge badge-warn">Emails off</span></div>}</td>
               <td>{ROLE_LABEL[u.role]}</td>
               <td className="muted">{when(u.last_login_at)}</td>
-              <td>{u.role === 'admin' ? <span className="faint">Not needed</span> : (() => { const n = ndas.data?.find((x) => x.user_id === u.id); return n?.id ? <button className="btn btn-sm btn-ghost" onClick={() => setViewNda(u)} title={`CNIC ${n.cnic_masked}`}><ShieldCheck size={14} /> Signed {when(n.signed_at!).split(',')[0]}</button> : n?.resign ? <span className="badge badge-warn" title={n.resign.reason || ''}>Asked to sign again</span> : <span className="badge badge-warn">Pending</span>; })()}</td>
+              <td>{u.role === 'admin' ? <span className="faint">Not needed</span> : (() => { const n = ndas.data?.find((x) => x.user_id === u.id); return n?.id ? <button className="btn btn-sm btn-ghost" onClick={() => setViewNda({ id: n.id!, name: u.name })} title={`CNIC ${n.cnic_masked}`}><ShieldCheck size={14} /> Signed {when(n.signed_at!).split(',')[0]}</button> : n?.resign ? <span className="badge badge-warn" title={n.resign.reason || ''}>Asked to sign again</span> : <span className="badge badge-warn">Pending</span>; })()}</td>
               <td>{u.locked_until ? <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><span className="badge badge-bad" title={`Too many wrong passwords. Unlocks at ${when(u.locked_until)}`}>Locked</span><button className="btn btn-sm" onClick={() => unlock(u)}>Unlock</button></span> : !u.active ? <span className="badge">Disabled</span> : u.must_change_password && u.role === 'admin' ? <span className="badge badge-warn">Must set password</span> : <span className="badge badge-good">Active</span>}</td>
               <td className="r" style={{ whiteSpace: 'nowrap' }}>
                 <button className="btn btn-sm" onClick={() => setEditing({ id: u.id, name: u.name, title: u.title || '', can_message_team: Boolean(u.can_message_team), email_notifications: u.email_notifications !== false, email: u.email, notify_email: u.notify_email || '', role: u.role, password: '', active: u.active })}>Edit</button>
@@ -427,7 +428,7 @@ function UsersPanel() {
           )}
         </div>
       )}
-      {viewNda && <NdaViewer person={viewNda} onClose={() => setViewNda(null)} onReset={() => { setViewNda(null); ndas.reload(); }} />}
+      {viewNda && <NdaViewer recordId={viewNda.id} name={viewNda.name} onClose={() => setViewNda(null)} onReset={() => { setViewNda(null); ndas.reload(); }} />}
       {removing && (
         <Modal title={`Remove ${removing.name}?`} onClose={() => setRemoving(null)} footer={
           <><button className="btn" onClick={() => setRemoving(null)}>Cancel</button><button className="btn btn-stop" disabled={busy} onClick={remove}><Trash2 size={15} /> {busy ? 'Removing…' : 'Remove member'}</button></>
@@ -504,42 +505,146 @@ function AuditPanel() {
   );
 }
 
-/** Admin: a team member's signed agreement, with download and "ask to sign again". */
-function NdaViewer({ person, onClose, onReset }: { person: { id: number; name: string }; onClose: () => void; onReset: () => void }) {
+const NDA_CHANGED = 'nda-changed';
+const fileName = (name: string, at: string) => `NDA-${name.replace(/[^\w]+/g, '-')}-${at.slice(0, 10)}.pdf`;
+const longDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+interface NdaRecord {
+  id: number; user_id: number; version: string; full_name: string; role_title: string | null; cnic_masked: string | null; phone: string | null;
+  signed_at: string; superseded_at: string | null; reset_reason: string | null; user_name: string; email: string; removed: boolean;
+  status: 'current' | 'replaced' | 'old_version';
+}
+interface NdaUnsigned { user_id: number; user_name: string; email: string; title: string | null; active: boolean; resign: { at: string; reason: string | null } | null }
+type NdaFilter = 'all' | 'current' | 'replaced' | 'old_version' | 'unsigned';
+const STATUS_LABEL: Record<NdaRecord['status'], string> = { current: 'Current', replaced: 'Replaced', old_version: 'Earlier version' };
+
+/** Admin: every NDA ever signed (current, replaced, earlier versions, removed members) and who still has to sign. */
+function NdaRecords() {
   const toast = useToast();
-  const { data, error } = useData<SignedNda>(`/nda/user/${person.id}`);
+  const { data, reload } = useData<{ version: string; records: NdaRecord[]; unsigned: NdaUnsigned[] }>('/nda/records');
+  const [filter, setFilter] = useState<NdaFilter>('all');
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState<NdaRecord | null>(null);
+  useEffect(() => { const f = () => reload(); window.addEventListener(NDA_CHANGED, f); return () => window.removeEventListener(NDA_CHANGED, f); }, [reload]);
+
+  const counts = useMemo(() => {
+    const r = data?.records || [];
+    return { all: r.length, current: r.filter((x) => x.status === 'current').length, replaced: r.filter((x) => x.status === 'replaced').length, old_version: r.filter((x) => x.status === 'old_version').length, unsigned: data?.unsigned.length || 0 };
+  }, [data]);
+  const term = q.trim().toLowerCase();
+  const match = (...v: (string | null)[]) => !term || v.some((x) => x?.toLowerCase().includes(term));
+  const rows = (data?.records || []).filter((r) => (filter === 'all' || r.status === filter) && match(r.full_name, r.user_name, r.email, r.role_title));
+  const unsigned = (data?.unsigned || []).filter((u) => match(u.user_name, u.email, u.title));
+  const tabs: [NdaFilter, string][] = [['all', 'All signed'], ['current', 'Current'], ['replaced', 'Replaced'], ['old_version', 'Earlier version'], ['unsigned', 'Not signed yet']];
+
+  return (
+    <div className="panel" style={{ marginBottom: 16 }}>
+      <div className="panel-head">
+        <div><h2><ShieldCheck size={18} style={{ verticalAlign: -3 }} /> NDA records</h2><p>Every signed agreement, including replaced copies, earlier versions and removed members. Only admins can see this list; each team member sees only their own.</p></div>
+      </div>
+      <div className="nda-rec-bar">
+        <div className="seg" role="tablist" aria-label="Filter agreements">
+          {tabs.map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={filter === k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{l} <span className="seg-n">{counts[k]}</span></button>
+          ))}
+        </div>
+        <label className="nda-rec-search"><Search size={15} /><input className="input" placeholder="Search name or email" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      </div>
+      {!data ? <Loading /> : filter === 'unsigned' ? (
+        unsigned.length === 0 ? <p className="muted panel-pad">Everyone has signed the current agreement.</p> : (
+          <div className="table-wrap" style={{ padding: 8 }}>
+            <table className="t">
+              <thead><tr><th>Name</th><th>Job title</th><th>Login email</th><th>Status</th></tr></thead>
+              <tbody>{unsigned.map((u) => (
+                <tr key={u.user_id}>
+                  <td><b>{u.user_name}</b>{!u.active && <span className="faint"> (disabled)</span>}</td>
+                  <td className="muted">{u.title || '—'}</td>
+                  <td className="muted">{u.email}</td>
+                  <td>{u.resign ? <span className="badge badge-warn" title={u.resign.reason || ''}>Asked to sign again</span> : <span className="badge badge-warn">Not signed yet</span>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )
+      ) : rows.length === 0 ? <p className="muted panel-pad">{term ? 'No agreements match your search.' : 'No agreements here yet.'}</p> : (
+        <div className="table-wrap" style={{ padding: 8 }}>
+          <table className="t">
+            <thead><tr><th>Signed by</th><th>Role</th><th>CNIC</th><th>Signed on</th><th>Version</th><th>Status</th><th /></tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.id}>
+                <td><b>{r.full_name}</b>{r.removed ? <div><span className="badge">Removed member</span></div> : r.full_name !== r.user_name && <div className="faint small">Account: {r.user_name}</div>}</td>
+                <td className="muted">{r.role_title || '—'}</td>
+                <td className="muted num" style={{ whiteSpace: 'nowrap' }}>{r.cnic_masked || '—'}</td>
+                <td className="muted" style={{ whiteSpace: 'nowrap' }}>{longDate(r.signed_at)}</td>
+                <td className="faint num" style={{ whiteSpace: 'nowrap' }}>{r.version}</td>
+                <td>
+                  <span className={`badge ${r.status === 'current' ? 'badge-good' : r.status === 'replaced' ? 'badge-warn' : ''}`}>{STATUS_LABEL[r.status]}</span>
+                  {r.status === 'replaced' && r.superseded_at && <div className="faint small" title={r.reset_reason || ''}>{longDate(r.superseded_at)}{r.reset_reason ? ` · ${r.reset_reason}` : ''}</div>}
+                </td>
+                <td className="r" style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn btn-sm" onClick={() => setOpen(r)}>View</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => download(`/nda/record/${r.id}/pdf`, fileName(r.full_name, r.signed_at)).catch((e) => toast(e.message, true))} aria-label={`Download PDF for ${r.full_name}`}><Download size={14} /> PDF</button>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {open && <NdaViewer recordId={open.id} name={open.full_name} onClose={() => setOpen(null)} onReset={() => { setOpen(null); reload(); }} />}
+    </div>
+  );
+}
+
+/** Admin: one signed agreement (any version or status), with download and, for the current one, "ask to sign again". */
+function NdaViewer({ recordId, name, onClose, onReset }: { recordId: number; name: string; onClose: () => void; onReset: () => void }) {
+  const toast = useToast();
+  const { data, error } = useData<SignedNda & { current: boolean; superseded_at: string | null; reset_reason: string | null }>(`/nda/record/${recordId}`);
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   async function reset() {
+    if (!data) return;
     setBusy(true);
     try {
-      await api.post(`/nda/user/${person.id}/reset`, { reason: reason.trim() || undefined });
-      toast(`${person.name} must sign again before continuing`);
+      await api.post(`/nda/user/${data.user_id}/reset`, { reason: reason.trim() || undefined });
+      toast(`${name} must sign again before continuing`);
+      window.dispatchEvent(new Event(NDA_CHANGED));
       onReset();
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   }
   return (
-    <Modal title={`Confidentiality agreement — ${person.name}`} onClose={onClose} wide footer={
+    <Modal title={`Confidentiality agreement — ${name}`} onClose={onClose} wide footer={
       asking ? (
         <><button className="btn" onClick={() => setAsking(false)}>Back</button>
           <button className="btn btn-stop" disabled={busy} onClick={reset}>{busy ? 'Sending…' : 'Ask to sign again'}</button></>
       ) : (
-        <><button className="btn btn-ghost btn-danger" style={{ marginRight: 'auto' }} onClick={() => setAsking(true)}>Ask to sign again</button>
-          <button className="btn" onClick={() => download(`/nda/user/${person.id}/pdf`, `NDA-${person.name}.pdf`).catch((e) => toast(e.message, true))}><Download size={15} /> Download PDF</button>
+        <>{data?.current && <button className="btn btn-ghost btn-danger" style={{ marginRight: 'auto' }} onClick={() => setAsking(true)}>Ask to sign again</button>}
+          <button className="btn" disabled={!data} onClick={() => data && download(`/nda/record/${recordId}/pdf`, fileName(data.full_name, data.signed_at)).catch((e) => toast(e.message, true))}><Download size={15} /> Download PDF</button>
           <button className="btn btn-primary" onClick={onClose}>Close</button></>
       )
     }>
       {asking ? (
         <div className="stack" style={{ gap: 12 }}>
-          <p>{person.name} will be stopped at the agreement and must sign it again before using Growth Desk. If they are using it right now, this happens within a few seconds.</p>
+          <p>{name} will be stopped at the agreement and must sign it again before using Growth Desk. If they are using it right now, this happens within a few seconds.</p>
           <div className="field">
             <label htmlFor="rr">What needs correcting? <span className="faint">(shown to them)</span></label>
             <textarea id="rr" className="input" rows={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. CNIC number does not match the CNIC image" autoFocus />
           </div>
           <p className="faint small">Their current signed copy is kept on record. Their earlier details are filled in for them, and they upload the CNIC images and signature again.</p>
         </div>
-      ) : error ? <p className="err-text">{error}</p> : !data ? <Loading /> : <div className="nda-paper"><NdaLetter title="Non-Disclosure and Confidentiality Agreement" sections={data.sections} signed={data} /></div>}
+      ) : error ? <p className="err-text">{error}</p> : !data ? <Loading /> : (
+        <>
+          {!data.current && (
+            <div className="notice warn" style={{ marginBottom: 12 }}>
+              <AlertTriangle />
+              <span>{data.superseded_at
+                ? <>This copy was replaced on {longDate(data.superseded_at)}{data.reset_reason ? ` (reason: ${data.reset_reason.replace(/[.!?]*\s*$/, '')})` : ''}. It is kept for the record.</>
+                : <>Signed on an earlier version of the agreement ({data.version}). The text below is exactly what was signed.</>}</span>
+            </div>
+          )}
+          <div className="nda-paper"><NdaLetter title="Non-Disclosure and Confidentiality Agreement" sections={data.sections} signed={data} /></div>
+        </>
+      )}
     </Modal>
   );
 }

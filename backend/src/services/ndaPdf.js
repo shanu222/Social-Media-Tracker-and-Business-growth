@@ -23,10 +23,10 @@ export function renderNdaPdf(sig, signatureBuf) {
     const g = doc.linearGradient(L, 108, L + W, 108); g.stop(0, '#1a5fe0').stop(0.5, '#12b5e8').stop(1, '#16b97a');
     doc.rect(L, 108, W, 3).fill(g);
     doc.fillColor('#0f1b33').font('Helvetica-Bold').fontSize(16).text(NDA_TITLE, L, 128, { width: W, align: 'center' });
-    doc.fillColor('#5b6676').font('Helvetica').fontSize(9).text(`Signed on ${dateText}  ·  Version ${NDA_VERSION}`, L, doc.y + 4, { width: W, align: 'center' });
+    doc.fillColor('#5b6676').font('Helvetica').fontSize(9).text(`Signed on ${dateText}  ·  Version ${sig.version || NDA_VERSION}`, L, doc.y + 4, { width: W, align: 'center' });
     doc.moveDown(1.2);
 
-    for (const s of ndaSections({ name: sig.full_name + (sig.guardian ? ` (${sig.guardian})` : ''), cnic: sig.cnic, role: sig.role_title || 'Team Member' })) {
+    for (const s of ndaSections({ name: sig.full_name + (sig.guardian ? ` (${sig.guardian})` : ''), cnic: sig.cnic, role: sig.role_title || 'Team Member' }, sig.version || NDA_VERSION)) {
       if (doc.y > doc.page.height - 140) doc.addPage();
       if (s.heading) doc.fillColor('#0f1b33').font('Helvetica-Bold').fontSize(10.5).text(s.heading, L, doc.y, { width: W }).moveDown(0.25);
       doc.fillColor('#1b2433').font('Helvetica').fontSize(10).text(s.body, L, doc.y, { width: W, align: 'justify', lineGap: 2 }).moveDown(0.7);
