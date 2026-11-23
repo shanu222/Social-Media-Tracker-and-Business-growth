@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BellRing, CalendarClock, Check, ChevronDown, HelpCircle, Link as LinkIcon, MessageSquare, Paperclip, Pencil, Play, Plus, RotateCcw, Send, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { api } from '../../api';
-import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, ROLE_LABEL, type Role } from '../../lib';
+import { useAuth, useData, useToast, Loading, ErrorBox, Modal, PlatformChip, PLATFORMS, prettyDate, todayStr, timeAgo, bytes, ROLE_LABEL, type Role } from '../../lib';
 import TaskComposer from './TaskComposer';
 import { TimeSection } from './TimeSection';
 import { Attachment, CopyBox, LINK_TYPES, PRIORITY, Progress, STATUS, uploadFile, type FileLite } from './shared';
@@ -20,7 +20,10 @@ export interface Task {
   posts: { id: number; platform: string; url: string | null; posted_on: string }[];
   comment_count: number; clarification_count: number;
 }
-interface Comment { id: number; kind: string; body: string | null; progress: number | null; created_at: string; user_id: number | null; user_name: string | null; user_role: Role | null }
+type CommentAttachment =
+  | { type: 'file'; id: number; name: string; mime: string; size: number }
+  | { type: 'link'; url: string; title: string; content_type: string };
+interface Comment { id: number; kind: string; body: string | null; progress: number | null; created_at: string; user_id: number | null; user_name: string | null; user_role: Role | null; attachments?: CommentAttachment[] }
 export interface Person { id: number; name: string; role?: string }
 
 const isOpen = (t: Task) => t.status === 'todo' || t.status === 'in_progress';
@@ -182,7 +185,6 @@ export function TaskDetail({ productId, taskId, people, onClose, onChanged }: { 
   const { data: t, reload } = useData<Task & { comments: Comment[] }>(`/products/${productId}/tasks/${taskId}`);
   const [progress, setProgress] = useState<number | null>(null);
   const [note, setNote] = useState('');
-  const [comment, setComment] = useState('');
   const [link, setLink] = useState({ url: '', title: '' });
   const [editing, setEditing] = useState(false);
   const [completing, setCompleting] = useState(false);
@@ -285,19 +287,18 @@ export function TaskDetail({ productId, taskId, people, onClose, onChanged }: { 
                   {c.kind === 'progress' && <span className="badge badge-good" style={{ marginLeft: 6 }}>{c.progress}%</span>}
                 </div>
                 {c.body && <div style={{ whiteSpace: 'pre-wrap', color: c.kind === 'system' ? 'var(--muted)' : undefined }}>{c.body}</div>}
+                {!!c.attachments?.length && (
+                  <div className="thumbs comment-att">
+                    {c.attachments.map((a, i) => a.type === 'file'
+                      ? <Attachment key={`f${a.id}`} f={a} />
+                      : <a key={`l${i}`} className="attach" href={a.url} target="_blank" rel="noreferrer noopener" title={a.url}><LinkIcon size={13} /> <span className="attach-name">{a.title}</span> <span className="faint">{LINK_TYPES[a.content_type] || ''}</span></a>)}
+                  </div>
+                )}
                 <div className="faint" style={{ fontSize: 12 }}>{timeAgo(c.created_at)}</div>
               </div>
             ))}
           </div>
-          {mine && t.status !== 'draft' && (
-            <form onSubmit={(e) => { e.preventDefault(); if (!comment.trim()) return; run(async () => { await api.post(`/products/${productId}/tasks/${t.id}/comments`, { body: comment, kind: 'comment' }); setComment(''); }, 'Comment added'); }}>
-              <textarea className="input" rows={2} placeholder="Write an update or reply…" value={comment} onChange={(e) => setComment(e.target.value)} aria-label="Comment" />
-              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 6 }}>
-                {!can('admin') && <button type="button" className="btn" disabled={!comment.trim() || busy} onClick={() => run(async () => { await api.post(`/products/${productId}/tasks/${t.id}/comments`, { body: comment, kind: 'clarification' }); setComment(''); }, 'Question sent to the admin by email')}><HelpCircle size={15} /> Ask admin for clarification</button>}
-                <button className="btn btn-dark" disabled={!comment.trim() || busy}><MessageSquare size={15} /> Post comment</button>
-              </div>
-            </form>
-          )}
+          {mine && t.status !== 'draft' && <CommentBox productId={productId} taskId={t.id} isAdmin={can('admin')} onPosted={refresh} />}
         </div>
       </div>
       {editing && <TaskForm productId={productId} task={t} people={people} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
@@ -305,6 +306,123 @@ export function TaskDetail({ productId, taskId, people, onClose, onChanged }: { 
     </Modal>
   );
 }
+
+interface PendingFile { key: string; file: File; pct: number; id?: number; error?: string }
+const DOC_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf,text/csv,text/plain,application/zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx';
+const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
+
+/** Comment composer: text plus Google Drive / Docs links and documents uploaded to Cloudflare R2. */
+function CommentBox({ productId, taskId, isAdmin, onPosted }: { productId: number; taskId: number; isAdmin: boolean; onPosted: () => void }) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [links, setLinks] = useState<{ url: string; title: string }[]>([]);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [draft, setDraft] = useState({ url: '', title: '' });
+  const [busy, setBusy] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const hasContent = text.trim().length > 0 || files.length > 0 || links.length > 0;
+  const urlOk = /^https?:\/\/\S+\.\S+/i.test(draft.url.trim());
+
+  function pick(list: FileList | null) {
+    if (!list) return;
+    const next = [...files];
+    for (const f of Array.from(list)) {
+      if (next.length >= 10) { toast('You can attach up to 10 files to one comment.', true); break; }
+      if (next.some((x) => x.key === fileKey(f))) continue;
+      next.push({ key: fileKey(f), file: f, pct: 0 });
+    }
+    setFiles(next);
+  }
+  function addLink() {
+    if (!urlOk) return;
+    if (links.length >= 10) return toast('You can add up to 10 links to one comment.', true);
+    setLinks([...links, { url: draft.url.trim(), title: draft.title.trim() }]);
+    setDraft({ url: '', title: '' });
+    setLinkOpen(false);
+  }
+
+  async function send(kind: 'comment' | 'clarification') {
+    if (!hasContent || busy) return;
+    if (linkOpen && draft.url.trim() && !urlOk) return toast('Finish the link first: it must start with https://', true);
+    const allLinks = linkOpen && urlOk ? [...links, { url: draft.url.trim(), title: draft.title.trim() }] : links;
+    setBusy(true);
+    const done: PendingFile[] = [...files];
+    try {
+      // Upload anything not uploaded yet (a retry keeps the ones that already made it)
+      for (let i = 0; i < done.length; i++) {
+        if (done[i].id) continue;
+        const update = (patch: Partial<PendingFile>) => { done[i] = { ...done[i], ...patch }; setFiles([...done]); };
+        update({ error: undefined, pct: 1 });
+        try {
+          const r = await uploadFile(done[i].file, { category: 'content', product_id: productId, task_id: taskId, note: 'Attached to a task comment' }, (pct) => update({ pct }));
+          update({ id: r.id, pct: 100 });
+        } catch (e) {
+          update({ error: (e as Error).message, pct: 0 });
+          throw new Error(`${done[i].file.name}: ${(e as Error).message}`);
+        }
+      }
+      await api.post(`/products/${productId}/tasks/${taskId}/comments`, {
+        body: text.trim(), kind,
+        links: allLinks.map((l) => ({ url: l.url, title: l.title || undefined })),
+        file_ids: done.map((f) => f.id!),
+      });
+      setText(''); setFiles([]); setLinks([]); setDraft({ url: '', title: '' }); setLinkOpen(false);
+      toast(kind === 'clarification' ? 'Question sent to the admin by email' : 'Comment added');
+      onPosted();
+    } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="comment-box" onSubmit={(e) => { e.preventDefault(); send('comment'); }}>
+      <textarea className="input" rows={2} placeholder="Write an update or reply…" value={text} onChange={(e) => setText(e.target.value)} aria-label="Comment" />
+      {(files.length > 0 || links.length > 0) && (
+        <ul className="cb-list" aria-label="Attachments">
+          {files.map((f) => (
+            <li key={f.key} className={f.error ? 'err' : ''}>
+              <Paperclip size={14} />
+              <span className="attach-name">{f.file.name}</span>
+              <span className="faint">{bytes(f.file.size)}</span>
+              {f.error ? <span className="err-text small">Failed</span> : f.id ? <span className="cb-ok"><Check size={13} /> Uploaded</span> : busy && f.pct > 0 ? <span className="cb-pct"><span style={{ width: `${f.pct}%` }} /></span> : null}
+              {!busy && <button type="button" className="icon-btn" aria-label={`Remove ${f.file.name}`} onClick={() => setFiles(files.filter((x) => x.key !== f.key))}><X size={14} /></button>}
+            </li>
+          ))}
+          {links.map((l, i) => (
+            <li key={`${l.url}${i}`}>
+              <LinkIcon size={14} />
+              <a className="attach-name" href={l.url} target="_blank" rel="noreferrer noopener">{l.title || l.url}</a>
+              <span className="faint">{LINK_TYPES[guessLinkType(l.url)] || 'Link'}</span>
+              {!busy && <button type="button" className="icon-btn" aria-label="Remove link" onClick={() => setLinks(links.filter((_, j) => j !== i))}><X size={14} /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {linkOpen && (
+        <div className="cb-link">
+          <input className="input" type="url" autoFocus placeholder="Paste a Google Drive, Docs or any https:// link" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink(); } }} aria-label="Link URL" />
+          <input className="input" placeholder="Label (optional)" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink(); } }} aria-label="Link label" />
+          <button type="button" className="btn" disabled={!urlOk} onClick={addLink}><Plus size={14} /> Add link</button>
+          <button type="button" className="btn btn-ghost" onClick={() => { setLinkOpen(false); setDraft({ url: '', title: '' }); }}>Cancel</button>
+        </div>
+      )}
+      <div className="cb-bar">
+        <div className="cb-tools">
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => fileInput.current?.click()}><Paperclip size={15} /> Upload document</button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy || linkOpen} onClick={() => setLinkOpen(true)}><LinkIcon size={15} /> Add Drive link</button>
+          <input ref={fileInput} type="file" multiple hidden accept={DOC_ACCEPT} onChange={(e) => { pick(e.target.files); e.target.value = ''; }} />
+        </div>
+        <div className="cb-send">
+          {!isAdmin && <button type="button" className="btn" disabled={!hasContent || busy} onClick={() => send('clarification')}><HelpCircle size={15} /> Ask admin for clarification</button>}
+          <button className="btn btn-dark" disabled={!hasContent || busy}><MessageSquare size={15} /> {busy ? (files.some((f) => !f.id) ? 'Uploading…' : 'Posting…') : 'Post comment'}</button>
+        </div>
+      </div>
+      <p className="faint small cb-hint">Documents are saved securely in cloud storage and also appear under Content & links and in the product library.</p>
+    </form>
+  );
+}
+
+const guessLinkType = (u: string) => (/drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive|1drv\.ms|sharepoint\.com/i.test(u) ? 'drive' : /youtube\.com|youtu\.be|vimeo\.com/i.test(u) ? 'video' : 'link');
 
 function CompleteTask({ t, onClose, onDone }: { t: Task; onClose: () => void; onDone: () => void }) {
   const toast = useToast();

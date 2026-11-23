@@ -285,6 +285,10 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 - **Confirmations:** recipients press *Got it* / *I'll attend*. The admin sees who has seen and confirmed each item.
 - **Job titles** are free text, set by the admin in Settings → Team, and shown across the app.
 
+### Attachments in task comments
+
+When writing a comment or asking for clarification on a task, team members can **Upload document** (PDF, Word, Excel, PowerPoint, images, videos, CSV, ZIP — up to 10 per comment) and **Add Drive link** (Google Drive, Docs, Sheets or any https link). Uploaded files are stored privately in Cloudflare R2 (large files go straight from the browser to R2) and downloaded through short-lived signed links. Every attachment is shown on the comment, added to the task's Content & links and saved in the product library. Emails about the comment list the attachments.
+
 ## Time tracking and performance reports
 
 - **Time:** people start/stop a timer on any task they work on, or add time by hand.

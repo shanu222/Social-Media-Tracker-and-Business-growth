@@ -491,6 +491,8 @@ ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
 ALTER TABLE nda_signatures ADD COLUMN IF NOT EXISTS reset_reason TEXT;
 ALTER TABLE nda_signatures DROP CONSTRAINT IF EXISTS nda_signatures_user_id_version_key;
 CREATE UNIQUE INDEX IF NOT EXISTS nda_active_uq ON nda_signatures(user_id, version) WHERE superseded_at IS NULL;
+-- Comments can carry links (Google Drive, Docs…) and uploaded files (stored in R2, listed in "files")
+ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

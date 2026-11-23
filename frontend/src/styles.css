@@ -849,3 +849,32 @@ a.att:hover { filter: brightness(0.97); }
 .nda-rec-search svg { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
 .nda-rec-search .input { padding-left: 32px; width: 100%; }
 @media (max-width: 640px) { .nda-rec-search { flex: 1 1 100%; } }
+
+/* Task comment composer: links and uploaded documents */
+.comment-box { display: flex; flex-direction: column; gap: 8px; }
+.cb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cb-list li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 8px 7px 10px; border: 1px solid var(--line-2, #e3e8ef); border-radius: 9px; background: #f8fafc; font-size: 13.5px; }
+.cb-list li.err { border-color: #f0c4c0; background: #fdf3f2; }
+.cb-list li > svg { flex: none; color: var(--muted); }
+.cb-list .attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.cb-list a.attach-name { color: var(--signal, #1a5fe0); }
+.cb-list .faint { flex: none; font-size: 12px; }
+.cb-ok { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--growth, #16a36a); font-size: 12px; font-weight: 500; }
+.cb-pct { flex: none; width: 70px; height: 6px; border-radius: 3px; background: #e2e7ed; overflow: hidden; }
+.cb-pct span { display: block; height: 100%; background: var(--signal, #1a5fe0); transition: width .2s; }
+.cb-list .icon-btn { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.cb-list .icon-btn:hover { background: #e9edf2; color: var(--ink); }
+.cb-list .icon-btn:focus-visible { outline: 2px solid var(--signal, #1a5fe0); outline-offset: 1px; }
+.cb-link { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto auto; gap: 6px; }
+.cb-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cb-tools, .cb-send { display: flex; gap: 6px; flex-wrap: wrap; }
+.cb-send { margin-left: auto; justify-content: flex-end; }
+.cb-hint { margin: 0; }
+.comment-att { margin-top: 6px; }
+.comment-att .attach-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .cb-link { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .cb-link input[type="url"] { grid-column: 1 / -1; }
+  .cb-send { width: 100%; }
+  .cb-send .btn { flex: 1; justify-content: center; }
+}

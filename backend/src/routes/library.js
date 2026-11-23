@@ -21,7 +21,7 @@ export function contentTypeFor(url = '', mime = '') {
   if (/youtube\.com|youtu\.be|vimeo\.com/.test(u) || mime.startsWith('video/')) return 'video';
   if (/instagram\.com|facebook\.com|linkedin\.com|x\.com|twitter\.com|t\.me|discord\.(gg|com)/.test(u)) return 'social';
   if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif)(\?|$)/.test(u)) return 'image';
-  if (mime.includes('pdf') || mime.includes('document') || mime.includes('sheet') || mime.includes('presentation') || mime.startsWith('text/') || /\.(pdf|docx?|xlsx?|pptx?)(\?|$)/.test(u)) return 'document';
+  if (mime.includes('pdf') || mime.includes('document') || mime.includes('sheet') || mime.includes('presentation') || /msword|ms-excel|ms-powerpoint/.test(mime) || mime.startsWith('text/') || /\.(pdf|docx?|xlsx?|pptx?)(\?|$)/.test(u)) return 'document';
   return url ? 'link' : 'other';
 }
 

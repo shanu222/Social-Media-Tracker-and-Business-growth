@@ -8,7 +8,9 @@ import { config, r2Enabled } from './config.js';
 const client = r2Enabled
   ? new S3Client({
       region: 'auto',
-      endpoint: `https://${config.r2.accountId}.r2.cloudflarestorage.com`,
+      // R2_ENDPOINT is optional (e.g. a local S3-compatible server for testing)
+      endpoint: process.env.R2_ENDPOINT || `https://${config.r2.accountId}.r2.cloudflarestorage.com`,
+      forcePathStyle: Boolean(process.env.R2_ENDPOINT),
       credentials: {
         accessKeyId: config.r2.accessKeyId,
         secretAccessKey: config.r2.secretAccessKey,

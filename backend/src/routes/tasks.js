@@ -312,23 +312,46 @@ productTasks.patch('/:taskId(\\d+)/progress', requireRole('manager'), ah(async (
 /** Comments & clarification requests. Admin replies reach the assignee by email too. */
 productTasks.post('/:taskId(\\d+)/comments', requireRole('manager'), ah(async (req, res) => {
   const b = parse(z.object({
-    body: z.string().trim().min(1, 'Write something first').max(4000),
+    body: z.string().trim().max(4000).default(''),
     kind: z.enum(['comment', 'clarification']).default('comment'),
+    links: z.array(linkSchema).max(10).default([]),
+    file_ids: z.array(z.number().int().positive()).max(10).default([]),
   }), req.body);
+  if (!b.body && !b.links.length && !b.file_ids.length) return res.status(400).json({ error: 'Write something or attach a file or link first.' });
+  if (b.links.some((l) => !isHttp(l.url))) return res.status(400).json({ error: 'Links must start with http:// or https://' });
   const t = await loadForWork(req, res);
   if (!t) return;
-  const c = await one(
-    'INSERT INTO task_comments (task_id, user_id, kind, body) VALUES ($1,$2,$3,$4) RETURNING *',
-    [t.id, req.user.id, b.kind, b.body]
-  );
+  // Files must already be uploaded to this task (by this person, or by the admin)
+  const files = b.file_ids.length ? await many(
+    'SELECT id, name, mime, size FROM files WHERE id = ANY($1::int[]) AND task_id = $2 AND (uploaded_by = $3 OR $4)',
+    [b.file_ids, t.id, req.user.id, req.user.role === 'admin']
+  ) : [];
+  if (files.length !== new Set(b.file_ids).size) return res.status(400).json({ error: 'One of the attached files was not found. Upload it again.' });
+  const attachments = [
+    ...files.map((f) => ({ type: 'file', id: f.id, name: f.name, mime: f.mime, size: Number(f.size) })),
+    ...b.links.map((l) => ({ type: 'link', url: l.url, title: l.title || l.url.replace(/^https?:\/\//, '').slice(0, 80), content_type: contentTypeFor(l.url) })),
+  ];
+  const c = await tx(async (cl) => {
+    // Links also go to the task's content and the product library
+    if (b.links.length) await saveLinks(cl, req.productId, t.id, b.links, req.user.id);
+    const { rows } = await cl.query(
+      'INSERT INTO task_comments (task_id, user_id, kind, body, attachments) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [t.id, req.user.id, b.kind, b.body || null, JSON.stringify(attachments)]
+    );
+    return rows[0];
+  });
+  const attachedText = attachments.length
+    ? `Attached: ${attachments.map((a) => (a.type === 'file' ? a.name : a.url)).join(', ')}`
+    : '';
+  const extra = [b.body, attachedText].filter(Boolean).join('\n\n');
   if (req.user.role === 'admin') {
-    await announce(t, req.user.id, { kind: 'comment', title: `${req.user.name} commented`, heading: 'New comment on your task', intro: `${req.user.name} wrote:`, extra: b.body });
+    await announce(t, req.user.id, { kind: 'comment', title: `${req.user.name} commented`, heading: 'New comment on your task', intro: `${req.user.name} wrote:`, extra });
   } else {
     await tellAdmins(t, req.user, {
       kind: b.kind === 'clarification' ? 'clarification' : 'comment',
       title: b.kind === 'clarification' ? 'Clarification requested' : `${req.user.name} commented`,
       heading: b.kind === 'clarification' ? 'Your manager needs clarification' : 'New comment on a task',
-      intro: `${req.user.name} wrote:`, extra: b.body, email: b.kind === 'clarification',
+      intro: `${req.user.name} wrote:`, extra, email: b.kind === 'clarification',
     });
   }
   await audit(req, b.kind === 'clarification' ? 'task.clarification' : 'task.comment', 'task', t.id, { title: t.title }, req.productId);
