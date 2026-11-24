@@ -32,7 +32,7 @@ import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import { upgradeToProductChecklists } from './services/checklistTemplates.js';
 import { ensureAllJoiningLetters } from './services/letters.js';
 import ndaRoutes, { requireNda } from './routes/nda.js';
-import letterRoutes, { verifyRouter } from './routes/letters.js';
+import letterRoutes, { verifyRouter, autoIssueCertificates } from './routes/letters.js';
 import credentialRoutes from './routes/credentials.js';
 import { watchCredentialsSite } from './services/credentialLinks.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
@@ -230,6 +230,10 @@ async function start() {
     sendEventReminders().then((n) => n && console.log('[events] reminders sent', n)).catch((e) => console.error('[events] failed', e.message));
     capStaleTimers().catch(() => {});
   }, tz);
+  // Certificates are issued automatically the day after an internship ends, when the requirement is met
+  const autoCerts = () => autoIssueCertificates().then((n) => n && console.log(`[certificates] issued ${n} automatically`)).catch((e) => console.error('[certificates] auto issue failed', e.message));
+  cron.schedule(process.env.CERT_CRON || '10 9 * * *', autoCerts, tz);
+  setTimeout(autoCerts, 90_000).unref();
   if (cron.validate(config.backupCron)) {
     cron.schedule(
       config.backupCron,

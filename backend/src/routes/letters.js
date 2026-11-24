@@ -11,7 +11,7 @@ import { notify } from '../notify.js';
 import { emailUserResult, noticeEmail } from '../mailer.js';
 import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
-  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, ensureJoiningLetter, ensureAllJoiningLetters, teamFor, supervisorText,
+  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, certPerformanceMet, ensureJoiningLetter, ensureAllJoiningLetters, teamFor, supervisorText,
 } from '../services/letters.js';
 import { credentialsBase, credentialUrl, linkedinAddUrl, captions, usingCompanyAddress } from '../services/credentialLinks.js';
 import { BRAND } from '../brand.js';
@@ -60,7 +60,13 @@ async function letterPdf(i, req) {
   });
 }
 
-async function certificatePdf(i, req) {
+async function certificatePdf(i, req, { preview = false } = {}) {
+  if (preview) {
+    const ceo = await getCompanySignature();
+    const el = await certEligibility(i);
+    const draft = { ...i, cert_ref: 'Not issued yet', cert_issued_on: todayPk(), cert_completed_on: i.end_date, cert_overall: el.overall ?? 0 };
+    return renderCertificate({ intern: draft, name: await printName(i.user_id), ceoSig: ceo?.png || null, verifyUrl: `${credentialsBase(req)}/verify`, preview: true });
+  }
   if (!i.cert_ref) fail(404, 'The certificate has not been issued yet.');
   if (i.cert_revoked_at) fail(410, 'This certificate has been withdrawn.');
   const ceo = await getCompanySignature();
@@ -90,7 +96,7 @@ function shareInfo(req, i, kind, name) {
   const issued = cert ? i.cert_issued_on : i.letter_date;
   const ref = cert ? i.cert_ref : i.letter_ref;
   const title = cert ? 'Internship Completion Certificate' : `${roleTitle(i.role)} — Joining Letter`;
-  const c = captions({ kind, role: i.role, url, minScore: CERT_MIN_SCORE });
+  const c = captions({ kind, role: i.role, url, minScore: CERT_MIN_SCORE, performanceMet: certPerformanceMet(i) });
   return {
     url, image: `${url}/image.png`, code: cert ? i.cert_code : i.letter_code, ref, title, name,
     text: c.short, captions: c,
@@ -143,7 +149,7 @@ router.post('/mine/certificate/claim', ah(async (req, res) => {
   if (!i.cert_ref) {
     const el = await certEligibility(i);
     if (!el.eligible) return res.status(409).json({ error: `Your certificate is not available yet. ${el.reason}` });
-    await issueCertificate(req, i, null);
+    await issueCertificate(req, i, { overall: el.overall });
   }
   res.json(await internFor(req.user.id));
 }));
@@ -367,32 +373,56 @@ router.delete('/intern/:userId(\\d+)', requireRole('admin'), ah(async (req, res)
   res.json({ ok: true });
 }));
 
-const certSchema = z.object({ remark: z.string().trim().max(220).optional().nullable() });
+const certSchema = z.object({ remark: z.string().trim().max(220).optional().nullable(), early: z.boolean().default(false) });
 
-/** Assigns the certificate number and verification code, then tells the intern. */
-async function issueCertificate(req, i, remark) {
-  await tx(async (c) => {
-    const today = todayPk();
+/**
+ * Assigns the certificate number and verification code, then tells the intern.
+ * req is null when the scheduler issues it automatically. Early issues (admin) end on today's date
+ * and only mention the performance requirement if it is actually met.
+ */
+async function issueCertificate(req, i, { remark = null, early = false, overall = null } = {}) {
+  const today = todayPk();
+  const completed = early && today < i.end_date ? today : i.end_date;
+  const done = await tx(async (c) => {
     const ref = await nextRef(c, 'certificate', Number(today.slice(0, 4)));
-    await c.query(
-      `UPDATE internships SET cert_ref=$2, cert_code=$3, cert_issued_on=$4, cert_completed_on=end_date, cert_remark=$5, cert_revoked_at=NULL, updated_at=now()
+    const { rowCount } = await c.query(
+      `UPDATE internships SET cert_ref=$2, cert_code=$3, cert_issued_on=$4, cert_completed_on=$5, cert_remark=$6, cert_overall=$7, cert_manual=$8,
+         cert_revoked_at=NULL, updated_at=now()
        WHERE id=$1 AND cert_ref IS NULL`,
-      [i.id, ref, verifyCode(), today, remark || null]
+      [i.id, ref, verifyCode(), today, completed, remark || null, overall, early]
     );
+    return rowCount > 0;
   });
   const n = await internFor(i.user_id);
-  await audit(req, 'certificate.issued', 'user', i.user_id, { ref: n.cert_ref, by: req.user.id === i.user_id ? 'claimed' : 'admin' });
+  if (!done) return n; // already issued (e.g. claimed at the same moment)
+  const by = !req ? 'automatic' : req.user.id === i.user_id ? 'claimed' : early ? 'admin (early)' : 'admin';
+  await audit(req, 'certificate.issued', 'user', i.user_id, { ref: n.cert_ref, by, overall });
   const admins = await many("SELECT id FROM users WHERE role = 'admin' AND active AND deleted_at IS NULL");
-  await notify([i.user_id, ...admins.map((a) => a.id)], { kind: 'letter', title: req.user.id === i.user_id ? `${req.user.name} received their internship certificate` : 'Your internship certificate is ready', body: n.cert_ref, link: '/documents' }, req.user.id);
+  const who = (await one('SELECT name FROM users WHERE id = $1', [i.user_id]))?.name || 'A team member';
+  await notify([i.user_id], { kind: 'letter', title: 'Your internship certificate is ready', body: n.cert_ref, link: '/documents' }, req?.user?.id ?? null);
+  await notify(admins.map((a) => a.id), { kind: 'letter', title: `${who} received their internship certificate${by === 'automatic' ? ' (issued automatically)' : ''}`, body: n.cert_ref, link: '/letters' }, req?.user?.id ?? null);
+  const met = certPerformanceMet(n);
   await emailUserResult(i.user_id, {
     kind: 'letter', subject: 'Your RTL internship certificate',
     ...noticeEmail({
       heading: 'Your internship certificate is ready',
-      intro: `Congratulations on completing your internship at RTL with an overall performance score of ${CERT_MIN_SCORE}% or higher. Download your certificate and share its verified link on LinkedIn and other platforms.`,
+      intro: `Congratulations on completing your internship at RTL${met ? ` with an overall performance score of ${CERT_MIN_SCORE}% or higher` : ''}. Download your certificate and share its verified link on LinkedIn and other platforms.`,
       rows: [['Certificate No.', n.cert_ref], ['Role', roleTitle(n.role)], ['Verify', credentialUrl(req, n.cert_code)]],
       link: '/documents', button: 'Download certificate',
     }),
   }, { important: true, ref: `certificate:${i.user_id}` }).catch(() => {});
+  return n;
+}
+
+/** Scheduler: issues certificates automatically once an internship has ended and the requirement is met. */
+export async function autoIssueCertificates() {
+  const due = await many(`SELECT ${INTERN_COLS} FROM internships i JOIN users u ON u.id = i.user_id
+    WHERE i.cert_ref IS NULL AND i.end_date < $1::date AND u.deleted_at IS NULL`, [todayPk()]);
+  let n = 0;
+  for (const i of due) {
+    const el = await certEligibility(i).catch(() => null);
+    if (el?.eligible && (await issueCertificate(null, i, { overall: el.overall }))?.cert_ref) n++;
+  }
   return n;
 }
 
@@ -406,10 +436,10 @@ router.post('/intern/:userId(\\d+)/certificate', requireRole('admin'), ah(async 
     await audit(req, 'certificate.updated', 'user', i.user_id, { ref: i.cert_ref });
     return res.json(await internFor(i.user_id));
   }
-  if (!i.accepted_at) return res.status(409).json({ error: 'The intern has not accepted the joining letter yet.' });
   const el = await certEligibility(i);
-  if (!el.eligible) return res.status(409).json({ error: `Not eligible yet. ${el.reason}` });
-  res.json(await issueCertificate(req, i, b.remark));
+  // The admin may issue before the internship ends or the requirement is met (confirmed in the form)
+  if (!el.eligible && !b.early) return res.status(409).json({ error: `Not eligible yet. ${el.reason}`, code: 'NOT_ELIGIBLE' });
+  res.json(await issueCertificate(req, i, { remark: b.remark, early: !el.eligible, overall: el.overall }));
 }));
 
 router.post('/intern/:userId(\\d+)/certificate/revoke', requireRole('admin'), ah(async (req, res) => {
@@ -450,6 +480,18 @@ router.get('/intern/:userId(\\d+)/letter.pdf', requireRole('admin'), ah(async (r
   const pdf = await letterPdf(i, req);
   await audit(req, 'letter.downloaded', 'user', i.user_id, { ref: i.letter_ref, by: 'admin' });
   sendPdf(res, pdf, `Joining-Letter-${safeName(i.letter_ref)}.pdf`);
+}));
+
+/** Admin only: what the certificate looks like now, marked "Preview · not issued". */
+router.get('/intern/:userId(\\d+)/certificate/preview.pdf', requireRole('admin'), ah(async (req, res) => {
+  const i = await internFor(userIdParam(req));
+  if (!i) return res.status(404).json({ error: 'No internship record found.' });
+  const pdf = await certificatePdf(i, req, { preview: true });
+  await audit(req, 'certificate.previewed', 'user', i.user_id, {});
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="Certificate-preview-${safeName(await printName(i.user_id))}.pdf"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(pdf);
 }));
 
 router.get('/intern/:userId(\\d+)/certificate.pdf', requireRole('admin'), ah(async (req, res) => {

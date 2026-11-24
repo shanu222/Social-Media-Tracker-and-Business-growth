@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { one } from '../db.js';
 import { ah } from '../util.js';
 import { BRAND } from '../brand.js';
-import { INTERN_COLS, CERT_MIN_SCORE, getCompanySignature, longDate, roleTitle, durationText } from '../services/letters.js';
+import { INTERN_COLS, CERT_MIN_SCORE, getCompanySignature, longDate, roleTitle, durationText, certPerformanceMet } from '../services/letters.js';
 import { certificateSvg, letterSvg, previewSvg, svgToPng, esc } from '../services/credentialArt.js';
 import { decryptBuffer } from '../crypto.js';
 import { cleanSignature } from '../services/letters.js';
@@ -199,7 +199,7 @@ router.get('/:code', ah(async (req, res) => {
     : `I've joined Resilience Technologies Labs (RTL) as a ${role}. Verified joining letter:`;
   const enc = encodeURIComponent;
   const liAdd = linkedinAddUrl({ name: docName, issueYear: issuedYear, issueMonth: issuedMonth, url, ref: r.ref });
-  const cap = captions({ kind: isCert ? 'certificate' : 'letter', role: i.role, url, minScore: CERT_MIN_SCORE });
+  const cap = captions({ kind: isCert ? 'certificate' : 'letter', role: i.role, url, minScore: CERT_MIN_SCORE, performanceMet: certPerformanceMet(i) });
 
   const status = valid
     ? `<div class="status" role="status"><span class="ic">${ICONS.check}</span><div><h1>Verified ${isCert ? 'certificate' : 'joining letter'}</h1><p>This ${docName.toLowerCase()} was issued by ${esc(BRAND.legal)} to <b>${esc(name)}</b>. Checked ${esc(longDate(new Date().toISOString()))}.</p></div></div>`
@@ -211,7 +211,7 @@ router.get('/:code', ah(async (req, res) => {
     ['Role', role],
     [isCert ? 'Internship' : 'Period', r.period],
     ['Issued on', longDate(r.issued)],
-    ...(isCert ? [['Awarded for', `Completing the internship with an overall performance score of ${CERT_MIN_SCORE}% or higher`]] : []),
+    ...(isCert && certPerformanceMet(i) ? [['Awarded for', `Completing the internship with an overall performance score of ${CERT_MIN_SCORE}% or higher`]] : []),
     ...(!isCert ? [['Status', i.accepted_at ? `Accepted on ${longDate(i.accepted_at.toISOString())}` : 'Issued, awaiting acceptance']] : []),
     ['Issued by', `${BRAND.legal} · signed by ${BRAND.ceo}, ${BRAND.ceoTitle}`],
     ['Verification code', code],
@@ -230,7 +230,7 @@ ${isCert ? `<a class="btn primary" href="${esc(liAdd)}" target="_blank" rel="noo
   const artSrc = `${url}/document.png`;
   const body = `<main>${status}<div class="grid">
 <div class="art${valid ? '' : ' void'}"><img src="${esc(artSrc)}" alt="${esc(`${docName} issued to ${name}`)}" width="${isCert ? 1684 : 1191}" height="${isCert ? 1190 : 1684}">${valid ? '' : '<div class="stamp"><span>WITHDRAWN</span></div>'}</div>
-<section class="card" aria-label="Credential details"><p class="kind">${esc(docName)}</p><h2 class="name">${esc(name)}</h2><p class="role">${esc(role)} · ${esc(durationText(i.start_date, i.end_date))}</p>
+<section class="card" aria-label="Credential details"><p class="kind">${esc(docName)}</p><h2 class="name">${esc(name)}</h2><p class="role">${esc(role)} · ${esc(durationText(i.start_date, isCert ? i.cert_completed_on || i.end_date : i.end_date))}</p>
 <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${share}</section></div>
 <div class="note"><b>This page is the official record.</b> Only RTL letters and certificates that show as verified on this page are genuine. Screenshots, edited copies or certificates bearing another person's name cannot be verified. To report misuse, write to <a href="mailto:${esc(BRAND.email)}">${esc(BRAND.email)}</a>.</div>
 </main>`;

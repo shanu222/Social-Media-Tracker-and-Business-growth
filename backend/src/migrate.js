@@ -539,6 +539,9 @@ ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_uploaded_at TIMESTAMPTZ;
 ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_skills TEXT[];
 ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_position TEXT;
 ALTER TABLE internships ADD COLUMN IF NOT EXISTS role_source TEXT NOT NULL DEFAULT 'title';
+-- Overall performance when the certificate was issued, and whether the admin issued it early
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cert_overall INTEGER;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cert_manual BOOLEAN NOT NULL DEFAULT FALSE;
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

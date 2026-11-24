@@ -314,6 +314,9 @@ The certificate is available only after the internship ends **and** the person's
 - **Progress:** members see their overall score so far against the target, with each month shown for information.
 - **Claiming it:** once eligible, they press **Get my certificate**. The admin can also issue it, but only when the person is eligible.
 - **Numbering:** certificates are numbered `RTL/HR/CERT/2026/0001`.
+- **Automatic issue:** every morning (`CERT_CRON`, default 09:10), certificates are issued automatically for internships that have ended where the requirement is met. The member and admins are notified, and it is recorded as "automatic".
+- **Admin preview:** the admin can open any member's certificate at any time (**Preview**). It is marked "Preview · not issued" and has no number. Admins only.
+- **Early issue:** the admin can issue a certificate before the internship ends or before the requirement is met, after confirming in the form. Early certificates show the internship up to the issue date, and only mention the performance requirement if it is actually met.
 
 ### Public verification links and sharing
 

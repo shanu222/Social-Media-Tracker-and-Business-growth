@@ -5,7 +5,7 @@ import opentype from 'opentype.js';
 import sharp from 'sharp';
 import QRCode from 'qrcode';
 import { BRAND } from '../brand.js';
-import { CERT_MIN_SCORE, durationText, longDate, roleTitle, intro, letterTerms } from './letters.js';
+import { CERT_MIN_SCORE, durationText, longDate, roleTitle, intro, letterTerms, certPerformanceMet } from './letters.js';
 import { stampPng, stampStyle } from './stamp.js';
 
 /*
@@ -75,8 +75,10 @@ const gradient = (id, x1 = 0, x2 = 1) => `<linearGradient id="${id}" x1="${x1}" 
 
 /** The certificate sentence (shared with the public page). */
 export function certificateSentence(i) {
-  const months = durationText(i.start_date, i.end_date).replace(/ \(\d+\)/, '').toLowerCase().replace(/ months?$/, '-month');
-  return `has successfully completed a ${months} remote internship as a ${roleTitle(i.role)} at ${BRAND.legal}, from ${longDate(i.start_date)} to ${longDate(i.cert_completed_on || i.end_date)}, with an overall performance score of ${CERT_MIN_SCORE}% or higher.`;
+  const until = i.cert_completed_on || i.end_date;
+  const months = durationText(i.start_date, until).replace(/ \(\d+\)/, '').toLowerCase().replace(/ months?$/, '-month');
+  const perf = certPerformanceMet(i) ? `, with an overall performance score of ${CERT_MIN_SCORE}% or higher` : '';
+  return `has successfully completed a ${months} remote internship as a ${roleTitle(i.role)} at ${BRAND.legal}, from ${longDate(i.start_date)} to ${longDate(until)}${perf}.`;
 }
 
 /**
@@ -148,6 +150,10 @@ export async function certificateSvg(o) {
   parts.push(text(F.sans, label, sx, H - 96, 17, { fill: MUTED }));
   parts.push(text(F.sansMedium, o.verifyUrl, sx + lw, H - 96, 17, { fill: BLUE }));
 
+  if (o.preview) {
+    // Admin preview: clearly not a valid certificate
+    parts.push(`<g transform="rotate(-24 ${cx} ${H / 2})" opacity="0.13">${text(F.sansBold, 'PREVIEW · NOT ISSUED', cx, H / 2 + 40, 118, { anchor: 'middle', ls: 0.06, fill: '#b8322a' })}</g>`);
+  }
   return {
     svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs>${gradient('g')}${gradient('g2')}</defs>${parts.join('')}</svg>`,
     width: W, height: H,

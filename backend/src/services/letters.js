@@ -195,9 +195,12 @@ export const INTERN_COLS = `i.id, i.user_id, i.role, i.start_date::text AS start
   i.supervisor_name, i.supervisor_title, i.notice_days, i.stipend, i.letter_ref, i.letter_date::text AS letter_date, i.letter_code,
   i.accepted_at, i.accepted_ip, i.accepted_nda_id, i.cert_ref, i.cert_code, i.cert_issued_on::text AS cert_issued_on,
   i.cert_completed_on::text AS cert_completed_on, i.cert_remark, i.cert_revoked_at, i.created_at, i.updated_at,
-  i.cv_name, i.cv_mime, i.cv_size, i.cv_uploaded_at, i.cv_skills, i.cv_position, i.role_source`;
+  i.cv_name, i.cv_mime, i.cv_size, i.cv_uploaded_at, i.cv_skills, i.cv_position, i.role_source, i.cert_overall, i.cert_manual`;
 
 /* ---------- Certificate eligibility ---------- */
+
+/** Whether the certificate may state the performance requirement (true for certificates issued on merit). */
+export const certPerformanceMet = (i) => i.cert_overall == null || i.cert_overall >= CERT_MIN_SCORE;
 
 /** Minimum monthly performance score for the completion certificate. */
 export const CERT_MIN_SCORE = Math.min(100, Math.max(1, Number(process.env.CERT_MIN_SCORE) || 90));

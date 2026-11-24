@@ -31,7 +31,10 @@ export async function checkCredentialsSite() {
 export function credentialsBase(req) {
   if (/^https?:\/\/[^/\s]+/i.test(FORCED)) return FORCED;
   if (Date.now() - checkedAt > 10 * 60 * 1000) checkCredentialsSite();
-  return siteBase || `${req.protocol}://${req.get('host')}`;
+  if (siteBase) return siteBase;
+  if (req) return `${req.protocol}://${req.get('host')}`;
+  // No request (scheduled job): this service's public address on Railway
+  return process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : SITE;
 }
 export const usingCompanyAddress = () => Boolean(FORCED || siteBase);
 
@@ -60,11 +63,11 @@ export function linkedinAddUrl({ name, issueYear, issueMonth, url, ref }) {
 }
 
 /** Ready-to-post captions. Instagram @handles become live tags when pasted; LinkedIn needs the page picked from the @ list. */
-export function captions({ kind, role, url, minScore }) {
+export function captions({ kind, role, url, minScore, performanceMet = true }) {
   const r = roleTitle(role);
   const company = BRAND.linkedinName;
   const linkedin = kind === 'certificate'
-    ? `I'm happy to share that I have successfully completed my ${r}ship at ${company}, with an overall performance score of ${minScore}% or higher.\n\nThank you to ${BRAND.ceo} and the RTL team for the guidance and the opportunity.\n\nVerified certificate: ${url}\n\n#Internship #RTL #ResilienceTechnologiesLabs #CareerGrowth`
+    ? `I'm happy to share that I have successfully completed my ${r}ship at ${company}${performanceMet ? `, with an overall performance score of ${minScore}% or higher` : ''}.\n\nThank you to ${BRAND.ceo} and the RTL team for the guidance and the opportunity.\n\nVerified certificate: ${url}\n\n#Internship #RTL #ResilienceTechnologiesLabs #CareerGrowth`
     : `I'm excited to share that I have joined ${company} as a ${r}. Looking forward to learning, contributing and growing with the team.\n\nVerified joining letter: ${url}\n\n#NewBeginnings #Internship #RTL #ResilienceTechnologiesLabs`;
   const instagram = kind === 'certificate'
     ? `Internship completed ✅ ${r} at @${BRAND.instagram}. Grateful for the experience!\nVerify: ${url}\n#Internship #RTL`

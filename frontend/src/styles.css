@@ -1014,3 +1014,5 @@ a.att:hover { filter: brightness(0.97); }
 .cv-view-head { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
 .cv-view-head > div:first-child { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cv-text { margin: 0; max-height: 58vh; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 13.5px/1.6 var(--font-body, Inter, system-ui, sans-serif); color: var(--ink); background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.early-box { align-items: flex-start; }
+.early-box b { color: inherit; }

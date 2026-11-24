@@ -437,7 +437,8 @@ function AdminLetters() {
                           <button className="btn btn-sm" title="Edit letter" onClick={() => setEditLetter(p)}><Pencil size={14} /> Letter</button>
                           <button className="btn btn-sm btn-ghost" disabled={busy === `l${p.user_id}`} aria-label={`Download joining letter for ${p.name}`} onClick={() => run(`l${p.user_id}`, () => download(`/letters/intern/${p.user_id}/letter.pdf`, `Joining-Letter-${fileRef(i.letter_ref)}.pdf`))}><Download size={14} /> PDF</button>
                           <a className="btn btn-sm btn-ghost" href={i.cert_url && !i.cert_revoked_at ? i.cert_url : i.letter_url} target="_blank" rel="noopener noreferrer" aria-label={`Open public page for ${p.name}`} title="Open public verification page"><ExternalLink size={14} /></a>
-                          {(i.cert_ref || i.eligibility?.eligible) && <button className="btn btn-sm" onClick={() => setEditCert(p)}><Award size={14} /> {i.cert_ref ? 'Certificate' : 'Issue certificate'}</button>}
+                          {!i.cert_ref && <button className="btn btn-sm btn-ghost" title="See the certificate as it would look today (not issued)" onClick={() => openInNewTab(`/letters/intern/${p.user_id}/certificate/preview.pdf`).catch((e) => toast(e.message, true))}>Preview</button>}
+                          <button className="btn btn-sm" onClick={() => setEditCert(p)}><Award size={14} /> {i.cert_ref ? 'Certificate' : 'Issue certificate'}</button>
                           {i.cert_ref && !i.cert_revoked_at && <button className="btn btn-sm btn-ghost" disabled={busy === `c${p.user_id}`} aria-label={`Download certificate for ${p.name}`} onClick={() => run(`c${p.user_id}`, () => download(`/letters/intern/${p.user_id}/certificate.pdf`, `Internship-Certificate-${fileRef(i.cert_ref!)}.pdf`))}><Download size={14} /> PDF</button>}
                         </>
                       )}
@@ -589,11 +590,16 @@ function CertForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; onS
   const i = p.internship!;
   const [remark, setRemark] = useState(i.cert_remark || '');
   const [busy, setBusy] = useState(false);
+  const [early, setEarly] = useState(false);
+  const e0 = i.eligibility;
+  const needsEarly = !i.cert_ref && !!e0 && !e0.eligible;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (needsEarly && !early) return;
     setBusy(true);
     try {
-      await api.post(`/letters/intern/${p.user_id}/certificate`, { remark: remark.trim() || null });
+      await api.post(`/letters/intern/${p.user_id}/certificate`, { remark: remark.trim() || null, early: needsEarly });
       toast(i.cert_ref ? 'Certificate updated' : `Certificate issued. ${p.name} has been notified.`);
       onSaved();
     } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
@@ -609,14 +615,30 @@ function CertForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; onS
           ? <button type="button" className="btn btn-ghost" style={{ marginRight: 'auto' }} onClick={() => revoke(true)}><Undo2 size={15} /> Restore</button>
           : <button type="button" className="btn btn-ghost btn-danger" style={{ marginRight: 'auto' }} onClick={() => revoke(false)}><Ban size={15} /> Withdraw</button>)}
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" form="cert-form" disabled={busy}>{busy ? 'Saving…' : i.cert_ref ? 'Save changes' : 'Issue certificate'}</button>
+        {!i.cert_ref && <button type="button" className="btn" onClick={() => openInNewTab(`/letters/intern/${p.user_id}/certificate/preview.pdf`).catch((err) => toast(err.message, true))}><ExternalLink size={15} /> Preview</button>}
+        <button className="btn btn-primary" form="cert-form" disabled={busy || (needsEarly && !early)}>{busy ? 'Saving…' : i.cert_ref ? 'Save changes' : needsEarly ? 'Issue early' : 'Issue certificate'}</button>
       </>
     }>
       <form id="cert-form" className="stack" style={{ gap: 12 }} onSubmit={submit}>
         {i.cert_ref
           ? <p className="muted small">Certificate No. <b>{i.cert_ref}</b>, issued {fmt(i.cert_issued_on)}. The number stays the same when you edit.</p>
-          : <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}. Overall performance met the requirement:</p>}
+          : <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}. {i.eligibility?.eligible ? 'Overall performance met the requirement:' : 'Performance so far:'}</p>}
         {i.eligibility && <MonthScores e={i.eligibility} />}
+        {needsEarly && e0 && (
+          <div className="notice warn early-box">
+            <div>
+              <b>Not eligible yet.</b> {e0.reason}
+              <p className="small" style={{ margin: '4px 0 0' }}>
+                You can still issue it now. The certificate will show the internship {today < i.end_date ? <>until today ({fmt(today)})</> : <>until {fmt(i.end_date)}</>}
+                {(e0.overall ?? 0) >= e0.min ? '.' : <>, and it will <b>not</b> mention the {e0.min}% performance requirement because it hasn't been met.</>}
+              </p>
+              <label className="check" style={{ marginTop: 8 }}>
+                <input type="checkbox" checked={early} onChange={(ev) => setEarly(ev.target.checked)} />
+                <span>Issue this certificate now, before the requirement is met</span>
+              </label>
+            </div>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="cf-r">Short appreciation <span className="faint">(optional, printed on the certificate)</span></label>
           <textarea id="cf-r" className="input" rows={2} maxLength={220} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. Consistently delivered high-quality content and grew the NET360 audience" />
