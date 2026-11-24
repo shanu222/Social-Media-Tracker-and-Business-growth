@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { Award, CheckCircle2, Clock, Copy, Download, ExternalLink, FileSignature, Lock, Pencil, PenLine, ScrollText, Share2, ShieldCheck, Trash2, Upload, Undo2, Ban } from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
+import { Award, CheckCircle2, Clock, Copy, Download, ExternalLink, FileSignature, FileText, Lock, Pencil, PenLine, ScrollText, Share2, ShieldCheck, Trash2, Upload, Undo2, Ban } from 'lucide-react';
 import { api, download } from '../api';
 import { BRAND } from '../brand';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal } from '../lib';
@@ -18,13 +18,14 @@ interface ShareInfo {
   captions: { linkedin: string; instagram: string; short: string }; linkedin_add: string | null;
   company: { name: string; linkedin: string; instagram: string };
 }
+interface CvInfo { name: string; size: number; uploaded_at: string; position: string | null; skills: string[]; role_source: string }
 interface Mine {
   nda: { signed_at: string } | null;
   ceo_signature_ready: boolean;
   min_score: number;
   internship: {
     letter: LetterView; certificate: { ref: string; issued_on: string; completed_on: string; revoked: boolean } | null;
-    eligibility: Eligibility | null; share: { letter: ShareInfo | null; certificate: ShareInfo | null };
+    eligibility: Eligibility | null; share: { letter: ShareInfo | null; certificate: ShareInfo | null }; cv: CvInfo | null;
   } | null;
 }
 
@@ -147,10 +148,27 @@ function MyDocuments() {
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [sharing, setSharing] = useState<{ s: ShareInfo; kind: 'letter' | 'certificate' } | null>(null);
+  const cvInput = useRef<HTMLInputElement>(null);
+  const pickCv = () => cvInput.current?.click();
+  function uploadCv(file: File) {
+    if (!/\.(pdf|docx)$/i.test(file.name)) return toast('Upload your CV as a PDF or Word (.docx) file.', true);
+    if (file.size > 5 * 1024 * 1024) return toast('Your CV must be 5 MB or smaller.', true);
+    const r = new FileReader();
+    r.onload = async () => {
+      setBusy('cv');
+      try {
+        const out = await api.post<{ message: string }>('/letters/mine/cv', { file: String(r.result), name: file.name });
+        toast(out.message);
+        reload();
+      } catch (e) { toast((e as Error).message, true); } finally { setBusy(null); }
+    };
+    r.readAsDataURL(file);
+  }
 
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox error={error || ''} retry={reload} />;
   const i = data.internship;
+  const hasCv = !!i?.cv;
   const claim = async () => {
     setBusy('claim');
     try {
@@ -172,6 +190,31 @@ function MyDocuments() {
           <p className="muted">Your agreement, joining letter and certificate, signed and ready to download.</p>
         </div>
       </div>
+
+      <input ref={cvInput} type="file" hidden accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => { if (e.target.files?.[0]) uploadCv(e.target.files[0]); e.target.value = ''; }} />
+      {i && (
+        <section className={`panel cv-panel ${hasCv ? 'has' : ''}`}>
+          <div className="doc-ico"><FileText /></div>
+          <div className="cv-body">
+            {hasCv ? (
+              <>
+                <h2>Your CV</h2>
+                <p className="muted small">{i.cv!.name} · uploaded {fmt(i.cv!.uploaded_at)}</p>
+                <p className="cv-pos">Position on your letters: <b>{i.letter.role}</b>{i.cv!.role_source === 'admin' && <span className="faint small"> (set by the admin)</span>}</p>
+                {i.cv!.skills.length > 0 && <div className="cv-skills" aria-label="Skills found in your CV">{i.cv!.skills.map((k) => <span key={k}>{k}</span>)}</div>}
+              </>
+            ) : (
+              <>
+                <h2>Upload your CV</h2>
+                <p className="muted">Required before you can accept or download your joining letter and certificate. Your position is set from your CV, for example Software Developer or Social Media Manager. PDF or Word (.docx), up to 5 MB.</p>
+              </>
+            )}
+          </div>
+          <div className="doc-actions">
+            <button className={`btn ${hasCv ? '' : 'btn-primary'}`} disabled={busy === 'cv'} onClick={pickCv}><Upload size={15} /> {busy === 'cv' ? 'Reading your CV…' : hasCv ? 'Replace CV' : 'Upload CV'}</button>
+          </div>
+        </section>
+      )}
 
       <div className="docs-grid">
         <section className="panel doc-card">
@@ -203,9 +246,11 @@ function MyDocuments() {
                 <>
                   <button className="btn btn-ghost" onClick={() => setReviewing(true)}>View</button>
                   {i.share.letter && <button className="btn" onClick={() => setSharing({ s: i.share.letter!, kind: 'letter' })}><Share2 size={15} /> Share</button>}
-                  <button className="btn btn-primary" disabled={busy === 'letter' || !data.ceo_signature_ready} onClick={() => get('letter', '/letters/mine/letter.pdf', `Joining-Letter-${fileRef(i.letter.ref)}.pdf`)}><Download size={15} /> {busy === 'letter' ? 'Preparing…' : 'Download'}</button>
+                  <button className="btn btn-primary" disabled={busy === 'letter' || !data.ceo_signature_ready || !hasCv} title={!hasCv ? 'Upload your CV first' : undefined} onClick={() => get('letter', '/letters/mine/letter.pdf', `Joining-Letter-${fileRef(i.letter.ref)}.pdf`)}><Download size={15} /> {busy === 'letter' ? 'Preparing…' : 'Download'}</button>
                 </>
-              ) : <button className="btn btn-primary" onClick={() => setReviewing(true)}>Review and accept</button>}
+              ) : hasCv
+                ? <button className="btn btn-primary" onClick={() => setReviewing(true)}>Review and accept</button>
+                : <button className="btn btn-primary" onClick={pickCv} disabled={busy === 'cv'}><Upload size={15} /> Upload CV to continue</button>}
             </div>
           )}
           {i && !data.ceo_signature_ready && <p className="doc-foot faint small"><Clock size={13} /> Download opens once the CEO's signature is added. The admin has been notified.</p>}
@@ -235,11 +280,11 @@ function MyDocuments() {
           {i && (i.certificate ? !i.certificate.revoked && (
             <div className="doc-actions">
               {i.share.certificate && <button className="btn" onClick={() => setSharing({ s: i.share.certificate!, kind: 'certificate' })}><Share2 size={15} /> Share</button>}
-              <button className="btn btn-primary" disabled={busy === 'cert' || !data.ceo_signature_ready} onClick={() => get('cert', '/letters/mine/certificate.pdf', `Internship-Certificate-${fileRef(i.certificate!.ref)}.pdf`)}><Download size={15} /> {busy === 'cert' ? 'Preparing…' : 'Download'}</button>
+              <button className="btn btn-primary" disabled={busy === 'cert' || !data.ceo_signature_ready || !hasCv} title={!hasCv ? 'Upload your CV first' : undefined} onClick={() => get('cert', '/letters/mine/certificate.pdf', `Internship-Certificate-${fileRef(i.certificate!.ref)}.pdf`)}><Download size={15} /> {busy === 'cert' ? 'Preparing…' : 'Download'}</button>
             </div>
           ) : i.eligibility?.eligible && (
             <div className="doc-actions">
-              <button className="btn btn-primary" disabled={busy === 'claim' || !i.letter.accepted_at} onClick={claim}><Award size={15} /> {busy === 'claim' ? 'Issuing…' : 'Get my certificate'}</button>
+              <button className="btn btn-primary" disabled={busy === 'claim' || !i.letter.accepted_at || !hasCv} title={!hasCv ? 'Upload your CV first' : undefined} onClick={claim}><Award size={15} /> {busy === 'claim' ? 'Issuing…' : 'Get my certificate'}</button>
             </div>
           ))}
         </section>
@@ -292,7 +337,7 @@ interface Internship {
   role: string; start_date: string; end_date: string; supervisor_name: string; supervisor_title: string | null; notice_days: number; stipend: string | null;
   letter_ref: string; letter_date: string; accepted_at: string | null;
   cert_ref: string | null; cert_issued_on: string | null; cert_completed_on: string | null; cert_remark: string | null; cert_revoked_at: string | null;
-  eligibility: Eligibility | null; letter_url: string; cert_url: string | null;
+  eligibility: Eligibility | null; letter_url: string; cert_url: string | null; cv: CvInfo | null;
 }
 interface Person { user_id: number; name: string; email: string; title: string | null; active: boolean; nda_signed_at: string | null; nda_name: string | null; internship: Internship | null }
 interface AdminData { ceo_signature: { preview: string; updated_at: string } | null; people: Person[]; credentials_base: string; custom_domain: boolean; min_score: number }
@@ -338,7 +383,12 @@ function AdminLetters() {
                 const i = p.internship;
                 return (
                   <tr key={p.user_id}>
-                    <td><b>{p.nda_name || p.name}</b><div className="faint small">{p.title || p.email}</div></td>
+                    <td>
+                      <b>{p.nda_name || p.name}</b><div className="faint small">{p.title || p.email}</div>
+                      {i && (i.cv
+                        ? <button className="link-btn small" onClick={() => run(`cv${p.user_id}`, () => download(`/letters/intern/${p.user_id}/cv`, i.cv!.name))}><FileText size={13} /> CV{i.cv.position ? ` · ${i.cv.position}` : ' · no clear position'}</button>
+                        : <div className="faint small">No CV yet</div>)}
+                    </td>
                     <td>{p.nda_signed_at ? <span className="badge badge-good">Signed</span> : <span className="badge badge-warn">Not signed</span>}</td>
                     <td>
                       {!i ? <span className="faint">Not prepared</span> : (

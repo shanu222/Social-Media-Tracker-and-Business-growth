@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { many, one, query, tx } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
-import { decryptBuffer } from '../crypto.js';
+import { decryptBuffer, encryptBuffer } from '../crypto.js';
+import { cvText, positionFromCv } from '../services/cv.js';
 import { ah, parse, zDate } from '../util.js';
 import { NDA_VERSION } from '../services/nda.js';
 import { notify } from '../notify.js';
@@ -67,6 +68,14 @@ async function certificatePdf(i, req) {
   return renderCertificate({ intern: i, name: await printName(i.user_id), ceoSig: ceo.png, verifyUrl: credentialUrl(req, i.cert_code) });
 }
 
+/** Letters and certificates are released only after the person has uploaded their CV. */
+function needCv(i, res) {
+  if (i.cv_uploaded_at) return false;
+  res.status(409).json({ error: 'Upload your CV first. Your position on the letter and certificate is set from it.', code: 'CV_REQUIRED' });
+  return true;
+}
+const cvView = (i) => (i?.cv_uploaded_at ? { name: i.cv_name, size: i.cv_size, uploaded_at: i.cv_uploaded_at, position: i.cv_position, skills: i.cv_skills || [], role_source: i.role_source } : null);
+
 function sendPdf(res, buf, filename) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -94,7 +103,7 @@ function shareInfo(req, i, kind, name) {
 function view(i, { ndaSignedAt, name, req, eligibility }) {
   if (!i) return null;
   return {
-    eligibility,
+    eligibility, cv: cvView(i),
     share: {
       letter: i.accepted_at ? shareInfo(req, i, 'letter', name) : null,
       certificate: i.cert_ref && !i.cert_revoked_at ? shareInfo(req, i, 'certificate', name) : null,
@@ -129,6 +138,7 @@ router.post('/mine/certificate/claim', ah(async (req, res) => {
   const i = await internFor(req.user.id);
   if (!i) return res.status(404).json({ error: 'No internship record found.' });
   if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
+  if (needCv(i, res)) return;
   if (!i.accepted_at) return res.status(409).json({ error: 'Accept your joining letter first.' });
   if (!i.cert_ref) {
     const el = await certEligibility(i);
@@ -143,6 +153,7 @@ router.post('/mine/accept', ah(async (req, res) => {
   if (!i) return res.status(404).json({ error: 'Your joining letter has not been prepared yet.' });
   const nda = await activeNda(req.user.id);
   if (!nda) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
+  if (needCv(i, res)) return;
   if (!i.accepted_at) {
     await query('UPDATE internships SET accepted_at = now(), accepted_ip = $2, accepted_nda_id = $3, updated_at = now() WHERE id = $1', [i.id, req.ip, nda.id]);
     await audit(req, 'letter.accepted', 'user', req.user.id, { ref: i.letter_ref });
@@ -156,6 +167,7 @@ router.get('/mine/letter.pdf', ah(async (req, res) => {
   const i = await internFor(req.user.id);
   if (!i) return res.status(404).json({ error: 'Your joining letter has not been prepared yet.' });
   if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
+  if (needCv(i, res)) return;
   if (!i.accepted_at) return res.status(409).json({ error: 'Accept the letter first, then download it.' });
   const pdf = await letterPdf(i, req);
   await audit(req, 'letter.downloaded', 'user', req.user.id, { ref: i.letter_ref });
@@ -166,9 +178,60 @@ router.get('/mine/certificate.pdf', ah(async (req, res) => {
   const i = await internFor(req.user.id);
   if (!i) return res.status(404).json({ error: 'No internship record found.' });
   if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
+  if (needCv(i, res)) return;
   const pdf = await certificatePdf(i, req);
   await audit(req, 'certificate.downloaded', 'user', req.user.id, { ref: i.cert_ref });
   sendPdf(res, pdf, `Internship-Certificate-${safeName(i.cert_ref)}.pdf`);
+}));
+
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const MAX_CV = 5 * 1024 * 1024;
+
+/** Upload or replace the CV. The position on the letter and certificate is set from it. */
+router.post('/mine/cv', ah(async (req, res) => {
+  await ensureJoiningLetter(req.user.id);
+  const i = await internFor(req.user.id);
+  if (!i) return res.status(404).json({ error: 'Your joining letter is created once you sign the NDA.' });
+  const b = parse(z.object({ file: z.string().max(7_500_000), name: z.string().trim().min(1).max(160) }), req.body);
+  const lower = b.name.toLowerCase();
+  const mime = lower.endsWith('.pdf') ? 'application/pdf' : lower.endsWith('.docx') ? DOCX : null;
+  const m = /^data:[^;,]*;base64,([A-Za-z0-9+/=]+)$/.exec(b.file);
+  if (!mime || !m) return res.status(400).json({ error: 'Upload your CV as a PDF or Word (.docx) file.' });
+  const buf = Buffer.from(m[1], 'base64');
+  if (buf.length > MAX_CV) return res.status(400).json({ error: 'Your CV must be 5 MB or smaller.' });
+  const looksRight = mime === 'application/pdf' ? buf.subarray(0, 5).toString() === '%PDF-' : buf[0] === 0x50 && buf[1] === 0x4b;
+  if (buf.length < 800 || !looksRight) return res.status(400).json({ error: 'That file is not a readable PDF or .docx. Save your CV again as PDF and upload it.' });
+  let text = '';
+  try { text = await cvText(buf, mime); } catch { /* handled below */ }
+  if (text.replace(/\s/g, '').length < 150) {
+    return res.status(400).json({ error: 'We couldn’t read the text in this CV — it may be a scanned image. Upload a PDF saved from Word or Google Docs, or a .docx file.' });
+  }
+  const r = await positionFromCv(text);
+  // The admin's choice, or an issued certificate, fixes the position
+  const locked = i.role_source === 'admin' || !!i.cert_ref;
+  const newRole = !locked && r.position ? r.position : i.role;
+  const changed = newRole !== i.role;
+  const reaccept = changed && !!i.accepted_at;
+  await query(
+    `UPDATE internships SET cv_enc=$2, cv_name=$3, cv_mime=$4, cv_size=$5, cv_uploaded_at=now(), cv_skills=$6, cv_position=$7, role=$8,
+       role_source = CASE WHEN $9 THEN 'cv' ELSE role_source END,
+       accepted_at = CASE WHEN $10 THEN NULL ELSE accepted_at END, accepted_ip = CASE WHEN $10 THEN NULL ELSE accepted_ip END,
+       accepted_nda_id = CASE WHEN $10 THEN NULL ELSE accepted_nda_id END, updated_at = now()
+     WHERE id = $1`,
+    [i.id, encryptBuffer(buf), b.name, mime, buf.length, r.skills, r.position, newRole, !locked && !!r.position, reaccept]
+  );
+  await audit(req, 'cv.uploaded', 'user', req.user.id, { position: r.position, method: r.method });
+  const admins = await many("SELECT id FROM users WHERE role = 'admin' AND active AND deleted_at IS NULL");
+  await notify(admins.map((a) => a.id), {
+    kind: 'letter', link: '/letters',
+    title: r.position ? `${req.user.name} uploaded a CV — position: ${roleTitle(newRole)}` : `${req.user.name} uploaded a CV — please set their position`,
+  }, req.user.id);
+  res.json({
+    position: r.position, role: roleTitle(newRole), changed, reaccept, locked, skills: r.skills, alternatives: r.alternatives,
+    message: !r.position ? 'Your CV is saved. We couldn’t pick a clear position from it, so the admin will set it.'
+      : locked && r.position !== i.role ? `Your CV is saved. Your position (${roleTitle(i.role)}) was set by the admin and stays the same.`
+      : `Your position is set to ${roleTitle(newRole)}.${reaccept ? ' Please accept your updated joining letter.' : ''}`,
+  });
 }));
 
 /* ---------------- Admin ---------------- */
@@ -198,7 +261,7 @@ router.get('/admin', requireRole('admin'), ah(async (req, res) => {
         role: p.role, start_date: p.start_date, end_date: p.end_date, supervisor_name: p.supervisor_name, supervisor_title: p.supervisor_title,
         notice_days: p.notice_days, stipend: p.stipend, letter_ref: p.letter_ref, letter_date: p.letter_date, accepted_at: p.accepted_at,
         cert_ref: p.cert_ref, cert_issued_on: p.cert_issued_on, cert_completed_on: p.cert_completed_on, cert_remark: p.cert_remark, cert_revoked_at: p.cert_revoked_at,
-        eligibility: elig.get(p.user_id) || null,
+        eligibility: elig.get(p.user_id) || null, cv: cvView(p),
         letter_url: credentialUrl(req, p.letter_code), cert_url: p.cert_code ? credentialUrl(req, p.cert_code) : null,
       } : null,
     })),
@@ -256,7 +319,7 @@ router.put('/intern/:userId(\\d+)', requireRole('admin'), ah(async (req, res) =>
     const before = [existing.role, existing.start_date, existing.end_date, existing.supervisor_name, existing.supervisor_title || null, existing.notice_days, existing.stipend || null];
     changedTerms = before.some((v, k) => String(v ?? '') !== String(vals[k] ?? ''));
     await query(
-      `UPDATE internships SET role=$2, start_date=$3, end_date=$4, supervisor_name=$5, supervisor_title=$6, notice_days=$7, stipend=$8, letter_date=$9,
+      `UPDATE internships SET role_source = CASE WHEN role <> $2 THEN 'admin' ELSE role_source END, role=$2, start_date=$3, end_date=$4, supervisor_name=$5, supervisor_title=$6, notice_days=$7, stipend=$8, letter_date=$9,
          accepted_at = CASE WHEN $10 THEN NULL ELSE accepted_at END, accepted_ip = CASE WHEN $10 THEN NULL ELSE accepted_ip END,
          accepted_nda_id = CASE WHEN $10 THEN NULL ELSE accepted_nda_id END, updated_at = now()
        WHERE user_id = $1`,
@@ -355,6 +418,16 @@ router.post('/intern/:userId(\\d+)/certificate/revoke', requireRole('admin'), ah
   await query(`UPDATE internships SET cert_revoked_at = ${restore ? 'NULL' : 'now()'}, updated_at = now() WHERE id = $1`, [i.id]);
   await audit(req, restore ? 'certificate.restored' : 'certificate.withdrawn', 'user', i.user_id, { ref: i.cert_ref });
   res.json(await internFor(i.user_id));
+}));
+
+router.get('/intern/:userId(\\d+)/cv', requireRole('admin'), ah(async (req, res) => {
+  const row = await one('SELECT user_id, cv_enc, cv_name, cv_mime FROM internships WHERE user_id = $1', [userIdParam(req)]);
+  if (!row?.cv_enc) return res.status(404).json({ error: 'No CV uploaded yet.' });
+  await audit(req, 'cv.downloaded', 'user', row.user_id, {});
+  res.setHeader('Content-Type', row.cv_mime);
+  res.setHeader('Content-Disposition', `attachment; filename="${row.cv_name.replace(/[^\w.\- ]+/g, '_')}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(decryptBuffer(row.cv_enc));
 }));
 
 router.get('/intern/:userId(\\d+)/letter.pdf', requireRole('admin'), ah(async (req, res) => {

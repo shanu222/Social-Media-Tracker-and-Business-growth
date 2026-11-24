@@ -530,6 +530,15 @@ CREATE TABLE IF NOT EXISTS internships (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- CV for the joining letter: stored encrypted; the position printed on letters is chosen from it
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_enc BYTEA;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_name TEXT;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_mime TEXT;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_size INTEGER;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_uploaded_at TIMESTAMPTZ;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_skills TEXT[];
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS cv_position TEXT;
+ALTER TABLE internships ADD COLUMN IF NOT EXISTS role_source TEXT NOT NULL DEFAULT 'title';
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;

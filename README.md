@@ -295,6 +295,17 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 - **Acceptance:** the team member reviews and accepts the letter. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again. Accepted letters can't be deleted, because they may have been shared.
 - **NDA first:** letters and certificates can only be opened or downloaded after the NDA is signed. Anyone who hasn't signed is sent to the NDA screen first.
 
+### CV and position
+
+Members must upload their CV (PDF or Word .docx, up to 5 MB) before they can accept or download their joining letter or certificate. It is stored encrypted, and the admin can download it from Letters & certificates.
+
+- **Position:** the position printed on the letter and certificate is chosen from the CV, using a fixed list of short, standard titles (Software Developer, Mobile App Developer, AI/ML Engineer, Data Analyst, UI/UX Designer, Graphic Designer, Video Editor, Content Writer, Social Media Manager, Digital Marketing Specialist, Business Developer, Project Coordinator, HR Associate, Civil Engineer, GIS Analyst, Research Assistant, Cybersecurity Analyst, DevOps Engineer, QA Engineer, Accountant, Customer Support Specialist), printed with "Intern".
+- **How it's chosen:** when an AI key is set, the AI picks the best title from that list. Otherwise the skills and tools in the CV are matched to each position.
+- **No clear match:** if the CV gives no clear match, the current position stays and the admin is asked to set it.
+- **Scanned CVs:** a scanned CV with no readable text is rejected, with a request for a PDF saved from Word or Google Docs.
+- **Admin's choice wins:** if the admin edits the position, a later CV upload does not change it. An issued certificate also fixes the position.
+- **Re-acceptance:** if a CV changes the position on an already accepted letter, the member is asked to accept the updated letter.
+
 ### Completion certificate: performance rule
 
 The certificate is available only after the internship ends **and** the person's **performance score was 85% or higher in every month** of the internship (`CERT_MIN_SCORE`).

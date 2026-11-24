@@ -134,7 +134,8 @@ export const intro = (i) => ({
 export const INTERN_COLS = `i.id, i.user_id, i.role, i.start_date::text AS start_date, i.end_date::text AS end_date,
   i.supervisor_name, i.supervisor_title, i.notice_days, i.stipend, i.letter_ref, i.letter_date::text AS letter_date, i.letter_code,
   i.accepted_at, i.accepted_ip, i.accepted_nda_id, i.cert_ref, i.cert_code, i.cert_issued_on::text AS cert_issued_on,
-  i.cert_completed_on::text AS cert_completed_on, i.cert_remark, i.cert_revoked_at, i.created_at, i.updated_at`;
+  i.cert_completed_on::text AS cert_completed_on, i.cert_remark, i.cert_revoked_at, i.created_at, i.updated_at,
+  i.cv_name, i.cv_mime, i.cv_size, i.cv_uploaded_at, i.cv_skills, i.cv_position, i.role_source`;
 
 /* ---------- Certificate eligibility ---------- */
 

@@ -23,6 +23,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.8.0",
     "multer": "^2.0.0",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.1",
@@ -32,6 +33,7 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5",
     "svg-to-pdfkit": "^0.1.8",
+    "unpdf": "^0.12.1",
     "zod": "^3.24.1"
   }
 }
