@@ -167,6 +167,10 @@ router.post(
       } catch {
         acc = await one('SELECT * FROM accounts WHERE id = $1', [acc.id]); // sync_error is shown on the card
       }
+    } else if (acc.sync_enabled && canSync(acc.platform)) {
+      // Starting numbers were typed in: still record today's live numbers
+      await syncAccount(acc.id).catch(() => {});
+      acc = await one('SELECT * FROM accounts WHERE id = $1', [acc.id]);
     }
     res.status(201).json({ ...present(acc, req.user.role), synced });
   })
@@ -217,7 +221,7 @@ router.put(
     const notesEnc = body.private_notes === undefined ? current.private_notes_enc : encrypt(body.private_notes);
     // Empty/omitted token keeps the stored one; send clear_api_token to remove it
     const tokenEnc = req.body.clear_api_token ? null : body.api_token ? encrypt(body.api_token) : current.api_token_enc;
-    const acc = await one(
+    let acc = await one(
       `UPDATE accounts SET brand=$2, username=$3, platform=$4, profile_url=$5, content_theme=$6, youtube_status=$7,
         two_factor_enabled=$8, login_email_enc=$9, private_notes_enc=$10, baseline_date=$11, baseline_posts=$12,
         baseline_followers=$13, baseline_following=$14, color=$15, archived=$16,
@@ -247,6 +251,11 @@ router.put(
       ]
     );
     await audit(req, 'account.updated', 'account', id, { brand: acc.brand });
+    // Channel link/ID changed or the last sync failed: sync again now so the card is correct straight away
+    if (acc.sync_enabled && canSync(acc.platform) && (acc.sync_error || acc.external_id !== current.external_id || acc.profile_url !== current.profile_url || !current.sync_enabled)) {
+      await syncAccount(acc.id).catch(() => {});
+      acc = await one('SELECT * FROM accounts WHERE id = $1', [acc.id]);
+    }
     res.json(present(acc, req.user.role));
   })
 );

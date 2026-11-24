@@ -31,7 +31,7 @@ async function getJson(url) {
 }
 
 export const SYNC_SUPPORT = {
-  youtube: { needs: 'YOUTUBE_API_KEY on the server; Channel ID (starts with UC) or @handle', token: false },
+  youtube: { needs: 'Channel link, @handle or Channel ID (YOUTUBE_API_KEY on the server)', token: false },
   telegram: { needs: 'TELEGRAM_BOT_TOKEN on the server; channel @username (bot must be added to private channels)', token: false },
   discord: { needs: 'A permanent invite code for the server (the part after discord.gg/)', token: false },
 };
@@ -40,16 +40,24 @@ const fetchers = {
   async youtube(acc) {
     const key = process.env.YOUTUBE_API_KEY;
     if (!key) throw new Error('YOUTUBE_API_KEY is not set on the server.');
-    const id = acc.external_id || acc.username;
-    const q = id.startsWith('UC') ? `id=${encodeURIComponent(id)}` : `forHandle=${encodeURIComponent(id.startsWith('@') ? id : '@' + id)}`;
-    const d = await getJson(`https://www.googleapis.com/youtube/v3/channels?part=statistics&${q}&key=${key}`);
-    const s = d.items?.[0]?.statistics;
-    if (!s) throw new Error('Channel not found. Check the Channel ID or handle.');
-    return {
-      followers: s.hiddenSubscriberCount ? null : Number(s.subscriberCount),
-      posts: Number(s.videoCount),
-      extra: { total_views: Number(s.viewCount) },
-    };
+    const tries = youtubeLookups(acc);
+    if (!tries.length) throw new Error('Add the channel link, @handle or Channel ID to this account.');
+    for (const q of tries) {
+      const d = await getJson(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&${q}&key=${key}`);
+      const ch = d.items?.[0];
+      if (!ch?.statistics) continue;
+      const s = ch.statistics;
+      // Remember the permanent channel ID so later syncs never depend on a handle that can change
+      if (!/^UC[\w-]{22}$/.test(acc.external_id || '')) {
+        await query('UPDATE accounts SET external_id = $2 WHERE id = $1', [acc.id, ch.id]).catch(() => {});
+      }
+      return {
+        followers: s.hiddenSubscriberCount ? null : Number(s.subscriberCount),
+        posts: Number(s.videoCount),
+        extra: { total_views: Number(s.viewCount), channel_id: ch.id, channel_title: ch.snippet?.title || null },
+      };
+    }
+    throw new Error(`Channel not found for ${tries.map((q) => decodeURIComponent(q.split('=')[1])).join(' / ')}. Check the channel link or @handle.`);
   },
   async telegram(acc) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -66,6 +74,37 @@ const fetchers = {
     return { followers: Number(d.approximate_member_count), extra: { online: Number(d.approximate_presence_count) } };
   },
 };
+
+/**
+ * Every way we can look the channel up, most reliable first, from whatever was entered:
+ * Channel ID (UC…), @handle, channel/handle/user/c links (with or without ?si=… share parameters),
+ * the profile URL, or the username.
+ */
+export function youtubeLookups(acc) {
+  const out = [];
+  const add = (q) => { if (q && !out.includes(q)) out.push(q); };
+  for (const raw of [acc.external_id, acc.profile_url, acc.username]) {
+    let v = String(raw || '').trim();
+    if (!v) continue;
+    const uc = /(UC[\w-]{22})/.exec(v);
+    if (uc) { add(`id=${uc[1]}`); continue; }
+    if (/youtu\.?be|youtube\.com|^www\.|^m\./i.test(v)) {
+      try {
+        const u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+        const parts = u.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+        if (parts[0]?.startsWith('@')) add(`forHandle=${encodeURIComponent(parts[0])}`);
+        else if (parts[0] === 'user' && parts[1]) { add(`forUsername=${encodeURIComponent(parts[1])}`); add(`forHandle=${encodeURIComponent('@' + parts[1])}`); }
+        else if (parts[0] === 'c' && parts[1]) add(`forHandle=${encodeURIComponent('@' + parts[1])}`);
+        else if (parts.length === 1 && !['watch', 'shorts', 'playlist', 'results'].includes(parts[0])) add(`forHandle=${encodeURIComponent('@' + parts[0])}`);
+      } catch { /* not a link */ }
+      continue;
+    }
+    // A plain handle only (no spaces) — never guess from a display name, it could match someone else's channel
+    v = v.split(/[?#]/)[0];
+    if (/^@?[\w.-]{3,}$/.test(v)) add(`forHandle=${encodeURIComponent(v.startsWith('@') ? v : '@' + v)}`);
+  }
+  return out;
+}
 
 export function canSync(platform) {
   return Boolean(fetchers[platform]);
@@ -104,6 +143,16 @@ export async function syncAccount(accountId) {
     err.status = 502;
     throw err;
   }
+}
+
+/** Once: switch automatic sync on for YouTube channels that were added before sync was on by default. */
+export async function enableYoutubeSync() {
+  const first = await one("INSERT INTO job_runs (key, run_on) VALUES ('youtube_sync_on', DATE '2000-01-01') ON CONFLICT DO NOTHING RETURNING key").catch(() => null);
+  if (!first) return 0;
+  const r = await query(`UPDATE accounts SET sync_enabled = TRUE
+    WHERE platform = 'youtube' AND archived = FALSE AND sync_enabled = FALSE
+      AND coalesce(nullif(external_id, ''), nullif(profile_url, ''), nullif(username, '')) IS NOT NULL`);
+  return r.rowCount;
 }
 
 export async function syncAll() {

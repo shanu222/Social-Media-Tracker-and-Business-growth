@@ -39,7 +39,7 @@ import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
 import notificationRoutes from './routes/notifications.js';
-import { syncAll } from './services/sync.js';
+import { syncAll, enableYoutubeSync } from './services/sync.js';
 import { importEnvKeys } from './services/aiProviders.js';
 
 const app = express();
@@ -219,6 +219,9 @@ async function start() {
   await bootstrapNotifyEmails();
   await importEnvKeys().catch((e) => console.error('[ai] env import failed', e.message));
   const tz = { timezone: config.timezone };
+  // YouTube channels added earlier: switch sync on once, then sync everything shortly after start-up
+  await enableYoutubeSync().then((n) => n && console.log(`[sync] automatic sync switched on for ${n} YouTube channel(s)`)).catch(() => {});
+  setTimeout(() => syncAll().then((r) => console.log('[sync] start-up', r)).catch((e) => console.error('[sync] failed', e.message)), 60_000).unref();
   // Pull follower counts from official APIs every 6 hours
   cron.schedule(process.env.SYNC_CRON || '15 */6 * * *', () =>
     syncAll().then((r) => console.log('[sync]', r)).catch((e) => console.error('[sync] failed', e.message)), tz);
