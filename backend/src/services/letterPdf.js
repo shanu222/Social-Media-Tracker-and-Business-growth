@@ -45,7 +45,7 @@ export async function renderJoiningLetter(o) {
 
   const body = (size = 10.5) => doc.font('Helvetica').fontSize(size).fillColor(INK);
   const bold = (size = 10.5) => doc.font('Helvetica-Bold').fontSize(size).fillColor(INK);
-  const GAP = 1.6;
+  const GAP = 1.0;
 
   // Reference and date
   let y = 182;
@@ -56,7 +56,7 @@ export async function renderJoiningLetter(o) {
 
   y += 22;
   bold(11).text('SUBJECT: INTERNSHIP JOINING LETTER', L, y, { width: W, align: 'center', underline: true });
-  y = doc.y + 12;
+  y = doc.y + 9;
   body().text(`Dear ${o.name},`, L, y);
   y = doc.y + 6;
 
@@ -74,18 +74,18 @@ export async function renderJoiningLetter(o) {
     body().text(`${n + 1}.`, L + 2, y, { width: 16 });
     bold().text(`${label}: `, L + 18, y, { width: W - 18, align: 'justify', lineGap: GAP, continued: true })
       .font('Helvetica').text(text);
-    y = doc.y + 3.5;
+    y = doc.y + 2.5;
   });
 
-  y += 4;
+  y += 3;
   body().text('Welcome to the RTL team. Your electronic acceptance below confirms that you have read and agree to these terms.', L, y, { width: W, align: 'justify', lineGap: GAP });
 
   // Signatures
   const sy = doc.y + 6;
   const colW = 190, rx = L + W - colW;
-  if (o.ceoSig) doc.image(o.ceoSig, L, sy, { fit: [140, 36], align: 'left', valign: 'bottom' });
-  if (o.memberSig && o.acceptedAt) doc.image(o.memberSig, rx, sy, { fit: [140, 36], align: 'left', valign: 'bottom' });
-  const ly = sy + 39;
+  if (o.ceoSig) doc.image(o.ceoSig, L, sy, { fit: [170, 46], align: 'left', valign: 'bottom' });
+  if (o.memberSig && o.acceptedAt) doc.image(o.memberSig, rx, sy, { fit: [170, 46], align: 'left', valign: 'bottom' });
+  const ly = sy + 49;
   doc.moveTo(L, ly).lineTo(L + colW, ly).moveTo(rx, ly).lineTo(rx + colW, ly).strokeColor(LINE).lineWidth(0.7).stroke();
   bold(10).text(BRAND.ceo, L, ly + 4, { width: colW });
   body(9.5).fillColor(MUTED).text(`${BRAND.ceoTitle}, RTL`, L, doc.y + 1, { width: colW });
@@ -95,7 +95,7 @@ export async function renderJoiningLetter(o) {
   doc.image(await stampPng({ size: 520, ...stampStyle(i.letter_ref) }), L + 108, ly - 52, { width: 90, height: 90 });
 
   // Verification
-  const vy = Math.max(doc.y + 9, 630), qs = 34;
+  const vy = Math.max(doc.y + 7, 624), qs = 34;
   doc.moveTo(L, vy - 6).lineTo(L + W, vy - 6).strokeColor('#dfe5ee').lineWidth(0.5).stroke();
   doc.image(await qr(o.verifyUrl), L + W - qs, vy, { width: qs, height: qs });
   const note = o.acceptedAt

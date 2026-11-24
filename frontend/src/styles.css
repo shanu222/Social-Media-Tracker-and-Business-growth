@@ -991,3 +991,16 @@ a.att:hover { filter: brightness(0.97); }
 .link-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; padding: 0; border: 0; background: none; color: var(--signal, #1a5fe0); font: inherit; cursor: pointer; text-align: left; }
 .link-btn:hover { text-decoration: underline; }
 .link-btn:focus-visible { outline: 2px solid var(--signal, #1a5fe0); outline-offset: 2px; border-radius: 3px; }
+
+/* Overall performance toward the certificate */
+.overall { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.overall-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.overall-head b { font-size: 18px; color: var(--ink); }
+.overall-head b.ok { color: #0f7a4d; }
+.overall-head .faint { margin-left: auto; }
+.overall-bar { position: relative; height: 8px; border-radius: 4px; background: #e6eaf0; }
+.overall-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--signal, #1a5fe0); }
+.overall-bar i.ok { background: #16a36a; }
+.overall-bar .target { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .55; }
+.overall.compact .overall-head b { font-size: 14px; }
+.overall .months { margin-top: 2px; }

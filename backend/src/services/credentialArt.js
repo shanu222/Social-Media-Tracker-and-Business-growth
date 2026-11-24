@@ -5,7 +5,7 @@ import opentype from 'opentype.js';
 import sharp from 'sharp';
 import QRCode from 'qrcode';
 import { BRAND } from '../brand.js';
-import { CERT_MIN_SCORE, durationText, longDate, roleTitle } from './letters.js';
+import { CERT_MIN_SCORE, durationText, longDate, roleTitle, intro, letterTerms } from './letters.js';
 import { stampPng, stampStyle } from './stamp.js';
 
 /*
@@ -76,7 +76,7 @@ const gradient = (id, x1 = 0, x2 = 1) => `<linearGradient id="${id}" x1="${x1}" 
 /** The certificate sentence (shared with the public page). */
 export function certificateSentence(i) {
   const months = durationText(i.start_date, i.end_date).replace(/ \(\d+\)/, '').toLowerCase().replace(/ months?$/, '-month');
-  return `has successfully completed a ${months} remote internship as a ${roleTitle(i.role)} at ${BRAND.legal}, from ${longDate(i.start_date)} to ${longDate(i.cert_completed_on || i.end_date)}, with a performance score of ${CERT_MIN_SCORE}% or higher in every month.`;
+  return `has successfully completed a ${months} remote internship as a ${roleTitle(i.role)} at ${BRAND.legal}, from ${longDate(i.start_date)} to ${longDate(i.cert_completed_on || i.end_date)}, with an overall performance score of ${CERT_MIN_SCORE}% or higher.`;
 }
 
 /**
@@ -121,7 +121,7 @@ export async function certificateSvg(o) {
   const by = 956, lx = 184, colW = 400;
   if (o.ceoSig) {
     const meta = await sharp(o.ceoSig).metadata();
-    const scale = Math.min(330 / meta.width, 96 / meta.height);
+    const scale = Math.min(370 / meta.width, 112 / meta.height);
     const w = meta.width * scale, h = meta.height * scale;
     parts.push(`<image href="${png64(o.ceoSig)}" x="${lx + (colW - w) / 2}" y="${by - h}" width="${w}" height="${h}"/>`);
   }
@@ -156,42 +156,153 @@ export async function certificateSvg(o) {
   };
 }
 
+/* ---------- Joining letter as an image (same content as the PDF, on the real letterhead) ---------- */
+
+const LETTERHEAD = path.resolve(here, '../../assets/letterhead.jpg');
+let letterheadUri = null;
+async function letterheadDataUrl() {
+  if (!letterheadUri && fs.existsSync(LETTERHEAD)) {
+    letterheadUri = `data:image/jpeg;base64,${(await sharp(LETTERHEAD).resize(1191, 1684).jpeg({ quality: 84 }).toBuffer()).toString('base64')}`;
+  }
+  return letterheadUri;
+}
+
+/** Justified paragraph with bold runs. runs: [{ t, b }]. Returns { svg, bottom } (bottom = last baseline). */
+function richPara(runs, x, y, maxW, size, lh, { justify = true, fill = INK } = {}) {
+  const toks = [];
+  let space = true;
+  for (const r of runs) {
+    for (const part of String(r.t).split(/(\s+)/)) {
+      if (!part) continue;
+      if (/^\s+$/.test(part)) { space = true; continue; }
+      const font = r.b ? F.sansSemi : F.sans;
+      if (!space && toks.length) toks[toks.length - 1].push({ w: part, font });
+      else toks.push([{ w: part, font }]);
+      space = false;
+    }
+  }
+  const unitW = (u) => u.reduce((a, t) => a + width(t.font, t.w, size), 0);
+  const sp = width(F.sans, ' ', size);
+  const lines = [];
+  let cur = [], curW = 0;
+  for (const u of toks) {
+    const w = unitW(u);
+    if (cur.length && curW + sp + w > maxW) { lines.push(cur); cur = [u]; curW = w; } else { curW += (cur.length ? sp : 0) + w; cur.push(u); }
+  }
+  if (cur.length) lines.push(cur);
+  let out = '';
+  lines.forEach((line, k) => {
+    const total = line.reduce((a, u) => a + unitW(u), 0);
+    const last = k === lines.length - 1;
+    const gap = justify && !last && line.length > 1 ? (maxW - total) / (line.length - 1) : sp;
+    let cx = x;
+    const by = y + k * lh;
+    for (const u of line) {
+      for (const t of u) { out += `<path d="${t.font.getPath(t.w, cx, by, size, { kerning: true }).toPathData(2)}" fill="${fill}"/>`; cx += width(t.font, t.w, size); }
+      cx += gap;
+    }
+  });
+  return { svg: out, bottom: y + (lines.length - 1) * lh };
+}
+
+/** A label + bold value on one line. */
+function pairText(label, value, x, y, size, { anchor = 'start' } = {}) {
+  const lw = width(F.sans, label, size), vw = width(F.sansSemi, value, size);
+  const sx = anchor === 'end' ? x - lw - vw : x;
+  return text(F.sans, label, sx, y, size, { fill: INK }) + text(F.sansSemi, value, sx + lw, y, size, { fill: INK });
+}
+
+async function fitImage(buf, x, yBottom, maxW, maxH) {
+  const m = await sharp(buf).metadata();
+  const k = Math.min(maxW / m.width, maxH / m.height);
+  const w = m.width * k, h = m.height * k;
+  return `<image href="${png64(buf)}" x="${x}" y="${yBottom - h}" width="${w}" height="${h}"/>`;
+}
+
 /**
- * Social preview / share image, 1200 × 630.
- * @param o { kind: 'certificate'|'letter', name, role, period, ref, valid }
+ * The joining letter as an A4 image (1191 × 1684), matching the PDF: letterhead, reference, terms,
+ * both signatures, company stamp and verification QR.
+ * @param o { intern, name, ndaSignedAt, ceoSig, memberSig, acceptedAt, verifyUrl, stamp }
  */
-export async function shareCardSvg(o) {
-  const W = 1200, H = 630;
-  const logo = await logoDataUrl();
-  const title = o.kind === 'certificate' ? 'Internship Completion Certificate' : 'Internship Joining Letter';
+export async function letterSvg(o) {
+  const i = o.intern;
+  const W = 1191, H = 1684, L = 108, TW = 975, size = 20, lh = 26.5;
   const p = [];
-  p.push(`<rect width="${W}" height="${H}" fill="url(#bg)"/>`);
-  p.push(`<circle cx="1040" cy="300" r="300" fill="#ffffff" opacity="0.035"/><circle cx="1040" cy="300" r="210" fill="#ffffff" opacity="0.035"/>`);
-  p.push(`<rect x="0" y="${H - 12}" width="${W}" height="12" fill="url(#g)"/>`);
-  if (logo) p.push(`<image href="${logo}" x="64" y="56" width="84" height="84"/>`);
-  p.push(text(F.sansSemi, 'Resilience Technologies Labs', 166, 94, 28, { fill: '#ffffff' }));
-  p.push(text(F.sans, '(SMC-Private) Limited  ·  Islamabad, Pakistan', 166, 128, 19, { fill: '#a9b8d6' }));
+  const lhImg = await letterheadDataUrl();
+  p.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
+  if (lhImg) p.push(`<image href="${lhImg}" x="0" y="0" width="${W}" height="${H}"/>`);
+  p.push(pairText('Ref No: ', i.letter_ref, L, 380, 19));
+  p.push(pairText('Date: ', longDate(i.letter_date), L + TW, 380, 19, { anchor: 'end' }));
+  p.push(pairText('To: ', o.name, L, 410, 19));
+  const subj = 'SUBJECT: INTERNSHIP JOINING LETTER';
+  const sw = width(F.sansBold, subj, 21);
+  p.push(text(F.sansBold, subj, W / 2, 462, 21, { anchor: 'middle', fill: INK }));
+  p.push(`<rect x="${W / 2 - sw / 2}" y="466" width="${sw}" height="1.6" fill="${INK}"/>`);
+  p.push(text(F.sans, `Dear ${o.name},`, L, 508, size, { fill: INK }));
+  const t = intro(i);
+  let r = richPara([{ t: t.before }, { t: t.company, b: true }, { t: t.middle }, { t: t.role, b: true }, { t: t.after }, { t: t.date, b: true }, { t: t.end }], L, 544, TW, size, lh);
+  p.push(r.svg);
+  let y = r.bottom + lh + 12;
+  letterTerms(i, o.ndaSignedAt).forEach(([label, body], n) => {
+    p.push(text(F.sans, `${n + 1}.`, L + 4, y, size, { fill: INK }));
+    r = richPara([{ t: `${label}:`, b: true }, { t: ` ${body}` }], L + 36, y, TW - 36, size, lh);
+    p.push(r.svg);
+    y = r.bottom + lh + 6;
+  });
+  r = richPara([{ t: 'Welcome to the RTL team. Your electronic acceptance below confirms that you have read and agree to these terms.' }], L, y + 2, TW, size, lh);
+  p.push(r.svg);
 
-  const badge = o.valid === false ? 'WITHDRAWN' : 'VERIFIED CREDENTIAL';
-  const bw = width(F.sansBold, badge, 15, 0.14) + 44;
-  p.push(`<rect x="${W - 64 - bw}" y="74" width="${bw}" height="40" rx="20" fill="${o.valid === false ? '#b8322a' : GREEN}"/>`);
-  p.push(text(F.sansBold, badge, W - 64 - bw / 2, 100, 15, { anchor: 'middle', ls: 0.14, fill: '#ffffff' }));
+  // Signatures and stamp
+  const sigBottom = r.bottom + 104, colW = 380, rx = L + TW - colW;
+  if (o.ceoSig) p.push(await fitImage(o.ceoSig, L, sigBottom, 340, 92));
+  if (o.memberSig && o.acceptedAt) p.push(await fitImage(o.memberSig, rx, sigBottom, 340, 92));
+  const ly = sigBottom + 6;
+  p.push(`<rect x="${L}" y="${ly}" width="${colW}" height="1.4" fill="#8a95a5"/><rect x="${rx}" y="${ly}" width="${colW}" height="1.4" fill="#8a95a5"/>`);
+  p.push(text(F.sansBold, BRAND.ceo, L, ly + 30, 20, { fill: INK }));
+  p.push(text(F.sans, `${BRAND.ceoTitle}, RTL`, L, ly + 56, 18, { fill: MUTED }));
+  p.push(text(F.sansBold, `Accepted by: ${o.name}`, rx, ly + 30, 20, { fill: INK }));
+  p.push(text(F.sans, o.acceptedAt ? `Date: ${longDate(o.acceptedAt)}` : 'Awaiting acceptance', rx, ly + 56, 18, { fill: MUTED }));
+  if (o.stamp) p.push(`<image href="${png64(o.stamp)}" x="${L + 216}" y="${ly - 104}" width="180" height="180"/>`);
 
-  p.push(text(F.sansMedium, title.toUpperCase(), 64, 246, 22, { ls: 0.14, fill: '#7fd8f5' }));
-  const ns = fit(F.serif, o.name, 78, W - 128);
-  p.push(text(F.serif, o.name, 64, 338, ns, { fill: '#ffffff' }));
-  p.push(text(F.sansMedium, o.role, 64, 400, 30, { fill: '#dce5f5' }));
-  p.push(text(F.sans, o.period, 64, 444, 24, { fill: '#a9b8d6' }));
+  const vy = Math.max(ly + 84, 1248);
+  p.push(`<rect x="${L}" y="${vy - 12}" width="${TW}" height="1" fill="#dfe5ee"/>`);
+  p.push(`<image href="${await qrDataUrl(o.verifyUrl)}" x="${L + TW - 68}" y="${vy}" width="68" height="68"/>`);
+  const note = o.acceptedAt
+    ? `Issued electronically by ${BRAND.legal}. The intern's signature is the one provided with their Non-Disclosure Agreement and was applied when they accepted this letter online on ${longDate(o.acceptedAt)}.`
+    : `Issued electronically by ${BRAND.legal}. Not yet accepted by the intern.`;
+  r = richPara([{ t: note }], L, vy + 16, TW - 92, 14.5, 20, { justify: false, fill: MUTED });
+  p.push(r.svg);
+  p.push(text(F.sans, 'Verify this letter: ', L, r.bottom + 22, 14.5, { fill: MUTED }) + text(F.sansMedium, o.verifyUrl, L + width(F.sans, 'Verify this letter: ', 14.5), r.bottom + 22, 14.5, { fill: BLUE }));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${p.join('')}</svg>`;
+}
 
-  p.push(`<rect x="64" y="496" width="${W - 128}" height="1.5" fill="#ffffff" opacity="0.16"/>`);
-  p.push(text(F.sans, 'Credential ID', 64, 546, 18, { fill: '#a9b8d6' }));
-  p.push(text(F.sansSemi, o.ref, 64, 576, 22, { fill: '#ffffff' }));
-  p.push(text(F.sans, 'Issued by', W - 64, 546, 18, { anchor: 'end', fill: '#a9b8d6' }));
-  p.push(text(F.sansSemi, `${BRAND.ceo}, ${BRAND.ceoTitle}`, W - 64, 576, 22, { anchor: 'end', fill: '#ffffff' }));
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a1a3d"/><stop offset=".6" stop-color="#112a5e"/><stop offset="1" stop-color="#0d4f6b"/></linearGradient>
-    ${gradient('g')}</defs>${p.join('')}</svg>`;
+/**
+ * Social preview (1200 × 630): the actual document on a plain desk-grey background, like a scan.
+ * Certificates fill the frame; letters sit on the left with the key details beside them.
+ * @param o { kind, docPng, name, role, period, ref, valid }
+ */
+export async function previewSvg(o) {
+  const W = 1200, H = 630;
+  const m = await sharp(o.docPng).metadata();
+  const p = [`<rect width="${W}" height="${H}" fill="#e7eaee"/>`];
+  const shadow = (x, y, w, h) => `<rect x="${x + 3}" y="${y + 8}" width="${w}" height="${h}" fill="#0a1a3d" opacity=".16" filter="url(#sh)"/>`;
+  if (o.kind === 'certificate') {
+    const h = 566, w = Math.round((m.width / m.height) * h), x = (W - w) / 2, y = 30;
+    p.push(shadow(x, y, w, h), `<image href="${png64(o.docPng)}" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+  } else {
+    const h = 582, w = Math.round((m.width / m.height) * h), x = 64, y = 24;
+    p.push(shadow(x, y, w, h), `<image href="${png64(o.docPng)}" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+    const tx = x + w + 64, maxW = W - tx - 56;
+    p.push(text(F.sansSemi, 'Internship Joining Letter', tx, 190, 26, { fill: BLUE }));
+    p.push(text(F.serif, o.name, tx, 262, fit(F.serif, o.name, 56, maxW), { fill: NAVY }));
+    p.push(text(F.sansMedium, o.role, tx, 314, fit(F.sansMedium, o.role, 28, maxW), { fill: INK }));
+    p.push(text(F.sans, o.period, tx, 354, fit(F.sans, o.period, 22, maxW), { fill: MUTED }));
+    p.push(`<rect x="${tx}" y="392" width="${maxW}" height="1.5" fill="#c9d0da"/>`);
+    p.push(text(F.sans, BRAND.legal, tx, 436, fit(F.sans, BRAND.legal, 20, maxW), { fill: INK }));
+    p.push(text(F.sans, `Ref ${o.ref}`, tx, 470, 20, { fill: MUTED }));
+    if (o.valid !== false) p.push(text(F.sansSemi, 'Verified record', tx, 520, 20, { fill: '#0f7a4d' }));
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs><filter id="sh" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="9"/></filter></defs>${p.join('')}</svg>`;
 }
 
 export const svgToPng = (svg, w) => sharp(Buffer.from(svg), { density: 96 }).resize({ width: w }).png({ compressionLevel: 9 }).toBuffer();

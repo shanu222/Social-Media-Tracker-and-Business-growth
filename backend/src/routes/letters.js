@@ -133,7 +133,7 @@ router.get('/mine', ah(async (req, res) => {
   });
 }));
 
-/** The intern claims their certificate once eligible (85%+ every month, internship ended). */
+/** The intern claims their certificate once eligible (overall performance at the threshold, internship ended). */
 router.post('/mine/certificate/claim', ah(async (req, res) => {
   const i = await internFor(req.user.id);
   if (!i) return res.status(404).json({ error: 'No internship record found.' });
@@ -387,7 +387,7 @@ async function issueCertificate(req, i, remark) {
     kind: 'letter', subject: 'Your RTL internship certificate',
     ...noticeEmail({
       heading: 'Your internship certificate is ready',
-      intro: `Congratulations on completing your internship at RTL with a performance score of ${CERT_MIN_SCORE}% or higher every month. Download your certificate and share its verified link on LinkedIn and other platforms.`,
+      intro: `Congratulations on completing your internship at RTL with an overall performance score of ${CERT_MIN_SCORE}% or higher. Download your certificate and share its verified link on LinkedIn and other platforms.`,
       rows: [['Certificate No.', n.cert_ref], ['Role', roleTitle(n.role)], ['Verify', credentialUrl(req, n.cert_code)]],
       link: '/documents', button: 'Download certificate',
     }),

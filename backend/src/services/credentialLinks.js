@@ -28,7 +28,7 @@ export function captions({ kind, role, url, minScore }) {
   const r = roleTitle(role);
   const company = BRAND.linkedinName;
   const linkedin = kind === 'certificate'
-    ? `I'm happy to share that I have successfully completed my ${r}ship at ${company}, with a performance score of ${minScore}% or higher in every month.\n\nThank you to ${BRAND.ceo} and the RTL team for the guidance and the opportunity.\n\nVerified certificate: ${url}\n\n#Internship #RTL #ResilienceTechnologiesLabs #CareerGrowth`
+    ? `I'm happy to share that I have successfully completed my ${r}ship at ${company}, with an overall performance score of ${minScore}% or higher.\n\nThank you to ${BRAND.ceo} and the RTL team for the guidance and the opportunity.\n\nVerified certificate: ${url}\n\n#Internship #RTL #ResilienceTechnologiesLabs #CareerGrowth`
     : `I'm excited to share that I have joined ${company} as a ${r}. Looking forward to learning, contributing and growing with the team.\n\nVerified joining letter: ${url}\n\n#NewBeginnings #Internship #RTL #ResilienceTechnologiesLabs`;
   const instagram = kind === 'certificate'
     ? `Internship completed ✅ ${r} at @${BRAND.instagram}. Grateful for the experience!\nVerify: ${url}\n#Internship #RTL`

@@ -289,7 +289,7 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 
 **Letters & certificates** (admin) and **My documents** (team members).
 
-- **CEO signature:** upload once (photo or scan on white paper). The background is removed automatically, and the signature is printed on every NDA, joining letter and certificate. It is stored encrypted.
+- **CEO signature:** upload once (photo or scan on white paper). The paper, shadows and margins are removed automatically and the image is cropped to the ink, so it prints at full size, and the signature is printed on every NDA, joining letter and certificate. It is stored encrypted.
 - **Automatic for everyone who signed the NDA:** existing signers get their joining letter at start-up, and new members get theirs the moment they sign. The defaults are the role from their job title ("Social Media Manager" → "Social Media Intern"), a start date of the day they joined, three months, and the CEO as supervisor. They are notified in the app and by email.
 - **Joining letter:** the admin can edit role, dates, supervisor, notice period and optional stipend. Each letter gets a running reference number (`RTL/HR/INT/2026/0001`) and is printed on the RTL letterhead (`backend/assets/letterhead.jpg`).
 - **Acceptance:** the team member reviews and accepts the letter. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again. Accepted letters can't be deleted, because they may have been shared.
@@ -308,12 +308,11 @@ Members must upload their CV (PDF or Word .docx, up to 5 MB) before they can acc
 
 ### Completion certificate: performance rule
 
-The certificate is available only after the internship ends **and** the person's **performance score was 85% or higher in every month** of the internship (`CERT_MIN_SCORE`).
+The certificate is available only after the internship ends **and** the person's **overall performance score across the whole internship is 90% or higher** (`CERT_MIN_SCORE`).
 
-- **Performance score:** the same number shown on the Performance page — the average of task completion rate and on-time completion rate.
-- **Months:** counted from the start date (1 Dec – 31 Dec, 1 Jan – 31 Jan, …). A month with no assigned tasks has no score and does not qualify.
-- **Interns:** see their month-by-month scores on My documents. Once eligible, they press **Get my certificate** themselves.
-- **Admin:** can also issue it, and only when the person is eligible. The admin can add a short appreciation line and can withdraw or restore a certificate.
+- **Performance score:** the same number shown on the Performance page — the average of task completion rate and on-time completion rate, over the full internship period.
+- **Progress:** members see their overall score so far against the target, with each month shown for information.
+- **Claiming it:** once eligible, they press **Get my certificate**. The admin can also issue it, but only when the person is eligible.
 - **Numbering:** certificates are numbered `RTL/HR/CERT/2026/0001`.
 
 ### Public verification links and sharing
@@ -321,7 +320,8 @@ The certificate is available only after the internship ends **and** the person's
 Every letter and certificate has a permanent public page at `<CREDENTIALS_URL>/verify/<code>`, like the verification pages of online course certificates. The QR code on the PDF points to the same page.
 
 - **The page shows:** the official record (name, role, period, credential ID, issue date, valid or withdrawn) and the certificate image.
-- **Sharing:** buttons for **Add to LinkedIn profile**, LinkedIn post, Facebook, X, WhatsApp, copy link and download image. Shared links show a preview card on social media.
+- **Sharing:** buttons for **Add to LinkedIn profile**, LinkedIn post, Facebook, X, WhatsApp, copy link and download image.
+- **Preview images:** the page and social previews show the real document — the joining letter on the RTL letterhead, or the certificate — with signatures, stamp and QR code.
 - **Lookup:** `/verify` lets anyone type a code by hand.
 - **No internal names:** the pages never mention the internal workspace.
 - **Permanent:** links never expire. Codes are stored permanently, and a page keeps working at every address that reaches the API. A withdrawn certificate shows as withdrawn.

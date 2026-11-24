@@ -6,15 +6,18 @@ import { one } from '../db.js';
 import { ah } from '../util.js';
 import { BRAND } from '../brand.js';
 import { INTERN_COLS, CERT_MIN_SCORE, getCompanySignature, longDate, roleTitle, durationText } from '../services/letters.js';
-import { certificateSvg, shareCardSvg, svgToPng, esc } from '../services/credentialArt.js';
+import { certificateSvg, letterSvg, previewSvg, svgToPng, esc } from '../services/credentialArt.js';
+import { decryptBuffer } from '../crypto.js';
+import { cleanSignature } from '../services/letters.js';
+import { stampPng, stampStyle } from '../services/stamp.js';
 import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
 
 /*
  * Public credential pages (no sign-in), like the verification pages of online course certificates:
  *   /verify                 look up a code
  *   /verify/<code>          the official record of a letter or certificate, with share buttons
- *   /verify/<code>/image.png        social preview card (1200×630)
- *   /verify/<code>/certificate.png  the full certificate image
+ *   /verify/<code>/image.png        social preview (1200×630): the real document on a plain background
+ *   /verify/<code>/document.png     the full letter or certificate as an image
  * They never mention the internal workspace, and they keep working for as long as the record exists.
  */
 const router = Router();
@@ -206,7 +209,7 @@ router.get('/:code', ah(async (req, res) => {
     ['Role', role],
     [isCert ? 'Internship' : 'Period', r.period],
     ['Issued on', longDate(r.issued)],
-    ...(isCert ? [['Awarded for', `Completing the internship with a performance score of ${CERT_MIN_SCORE}% or higher in every month`]] : []),
+    ...(isCert ? [['Awarded for', `Completing the internship with an overall performance score of ${CERT_MIN_SCORE}% or higher`]] : []),
     ...(!isCert ? [['Status', i.accepted_at ? `Accepted on ${longDate(i.accepted_at.toISOString())}` : 'Issued, awaiting acceptance']] : []),
     ['Issued by', `${BRAND.legal} · signed by ${BRAND.ceo}, ${BRAND.ceoTitle}`],
     ['Verification code', code],
@@ -219,12 +222,12 @@ ${isCert ? `<a class="btn primary" href="${esc(liAdd)}" target="_blank" rel="noo
 <a class="btn" href="https://twitter.com/intent/tweet?text=${enc(shareText)}&url=${enc(url)}" target="_blank" rel="noopener">${ICONS.xsocial} X</a>
 <a class="btn" href="https://wa.me/?text=${enc(`${shareText} ${url}`)}" target="_blank" rel="noopener"><span class="wa">${ICONS.whatsapp}</span> WhatsApp</a>
 <button class="btn" type="button" id="copy" data-url="${esc(url)}">${ICONS.link} Copy link</button>
-<a class="btn" href="${esc(isCert ? `${url}/certificate.png` : img)}" download="${esc(`${r.ref.replace(/[^\w]+/g, '-')}.png`)}">${ICONS.download} Download image</a>
+<a class="btn" href="${esc(`${url}/document.png`)}" download="${esc(`${r.ref.replace(/[^\w]+/g, '-')}.png`)}">${ICONS.download} Download image</a>
 </div><p class="follow">Tag <a href="${esc(BRAND.linkedin)}" target="_blank" rel="noopener">${esc(BRAND.linkedinName)}</a> in your post: type <b>@Resilience Technologies Labs</b> and pick the company page.</p></div>` : '';
 
-  const artSrc = isCert ? `${url}/certificate.png` : img;
+  const artSrc = `${url}/document.png`;
   const body = `<main>${status}<div class="grid">
-<div class="art${valid ? '' : ' void'}"><img src="${esc(artSrc)}" alt="${esc(`${docName} issued to ${name}`)}" width="${isCert ? 1684 : 1200}" height="${isCert ? 1190 : 630}">${valid ? '' : '<div class="stamp"><span>WITHDRAWN</span></div>'}</div>
+<div class="art${valid ? '' : ' void'}"><img src="${esc(artSrc)}" alt="${esc(`${docName} issued to ${name}`)}" width="${isCert ? 1684 : 1191}" height="${isCert ? 1190 : 1684}">${valid ? '' : '<div class="stamp"><span>WITHDRAWN</span></div>'}</div>
 <section class="card" aria-label="Credential details"><p class="kind">${esc(docName)}</p><h2 class="name">${esc(name)}</h2><p class="role">${esc(role)} · ${esc(durationText(i.start_date, i.end_date))}</p>
 <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${share}</section></div>
 <div class="note"><b>This page is the official record.</b> Only RTL letters and certificates that show as verified on this page are genuine. Screenshots, edited copies or certificates bearing another person's name cannot be verified. To report misuse, write to <a href="mailto:${esc(BRAND.email)}">${esc(BRAND.email)}</a>.</div>
@@ -248,32 +251,62 @@ ${isCert ? `<a class="btn primary" href="${esc(liAdd)}" target="_blank" rel="noo
   }));
 }));
 
-/** Social preview card. */
-router.get('/:code/image.png', ah(async (req, res) => {
-  const r = await lookup(normCode(req.params.code));
-  if (!r) return res.status(404).type('text').send('Not found');
-  const png = await cached(`card:${req.params.code}:${r.stamp}`, async () => svgToPng(await shareCardSvg({
-    kind: r.isCert ? 'certificate' : 'letter', name: r.name, role: roleTitle(r.i.role), period: r.period, ref: r.ref, valid: r.valid,
-  }), 1200));
+/** The document itself as a PNG (letter on the letterhead, or the certificate). */
+async function documentPng(req, code, r) {
+  const ceo = await getCompanySignature();
+  const base = credentialsBase(req);
+  return cached(`doc:${code}:${r.stamp}:${base}:${ceo?.updated_at || ''}`, async () => {
+    const verifyUrl = credentialUrl(req, code);
+    if (r.isCert) {
+      const art = await certificateSvg({ intern: r.i, name: r.name, ceoSig: ceo?.png || null, verifyUrl });
+      return svgToPng(art.svg, 1684);
+    }
+    const i = r.i;
+    const sig = i.accepted_at
+      ? (i.accepted_nda_id && await one('SELECT full_name, signed_at, signature_enc FROM nda_signatures WHERE id = $1', [i.accepted_nda_id]))
+        || await one('SELECT full_name, signed_at, signature_enc FROM nda_signatures WHERE user_id = $1 ORDER BY (superseded_at IS NULL) DESC, signed_at DESC LIMIT 1', [i.user_id])
+      : await one('SELECT full_name, signed_at, NULL AS signature_enc FROM nda_signatures WHERE user_id = $1 ORDER BY (superseded_at IS NULL) DESC, signed_at DESC LIMIT 1', [i.user_id]);
+    const svg = await letterSvg({
+      intern: i, name: r.name, ndaSignedAt: sig?.signed_at || null, ceoSig: ceo?.png || null,
+      memberSig: sig?.signature_enc ? await cleanSignature(decryptBuffer(sig.signature_enc)).catch(() => null) : null,
+      acceptedAt: i.accepted_at, verifyUrl, stamp: await stampPng({ size: 520, ...stampStyle(i.letter_ref) }),
+    });
+    return svgToPng(svg, 1191);
+  });
+}
+
+function sendPng(res, png) {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.type('png').send(png);
+}
+
+/** Social preview: the real document on a plain background. */
+router.get('/:code/image.png', ah(async (req, res) => {
+  const code = normCode(req.params.code);
+  const r = await lookup(code);
+  if (!r) return res.status(404).type('text').send('Not found');
+  const doc = await documentPng(req, code, r);
+  const png = await cached(`og:${code}:${r.stamp}:${doc.length}`, async () => svgToPng(await previewSvg({
+    kind: r.isCert ? 'certificate' : 'letter', docPng: doc, name: r.name, role: roleTitle(r.i.role), period: r.period, ref: r.ref, valid: r.valid,
+  }), 1200));
+  sendPng(res, png);
 }));
 
-/** The full certificate as an image. */
+/** The full letter or certificate as an image. */
+router.get('/:code/document.png', ah(async (req, res) => {
+  const code = normCode(req.params.code);
+  const r = await lookup(code);
+  if (!r) return res.status(404).type('text').send('Not found');
+  sendPng(res, await documentPng(req, code, r));
+}));
+
+/** Older links to the certificate image. */
 router.get('/:code/certificate.png', ah(async (req, res) => {
   const code = normCode(req.params.code);
   const r = await lookup(code);
   if (!r || !r.isCert) return res.status(404).type('text').send('Not found');
-  const ceo = await getCompanySignature();
-  const base = credentialsBase(req);
-  const png = await cached(`cert:${code}:${r.stamp}:${base}:${ceo?.updated_at || ''}`, async () => {
-    const art = await certificateSvg({ intern: r.i, name: r.name, ceoSig: ceo?.png || null, verifyUrl: credentialUrl(req, code) });
-    return svgToPng(art.svg, 1684);
-  });
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Cache-Control', 'public, max-age=3600');
-  res.type('png').send(png);
+  sendPng(res, await documentPng(req, code, r));
 }));
 
 export default router;

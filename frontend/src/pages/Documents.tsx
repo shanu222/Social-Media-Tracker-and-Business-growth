@@ -11,8 +11,8 @@ interface LetterView {
   accepted_at: string | null; name: string; terms: [string, string][];
   intro: { before: string; company: string; middle: string; role: string; after: string; date: string; end: string };
 }
-interface Month { n: number; label: string; range: string; start: string; end: string; state: 'done' | 'current' | 'upcoming'; score: number | null; assigned: number; completed: number; passed: boolean }
-interface Eligibility { min: number; ended: boolean; eligible: boolean; reason: string; months: Month[] }
+interface Month { n: number; label: string; range: string; start: string; end: string; state: 'done' | 'current' | 'upcoming'; score: number | null; assigned: number; completed: number }
+interface Eligibility { min: number; ended: boolean; eligible: boolean; overall: number | null; assigned: number; completed: number; reason: string; months: Month[] }
 interface ShareInfo {
   url: string; image: string; code: string; ref: string; title: string; text: string; name: string;
   captions: { linkedin: string; instagram: string; short: string }; linkedin_add: string | null;
@@ -56,21 +56,32 @@ function LetterPreview({ l }: { l: LetterView }) {
   );
 }
 
-/** Month-by-month performance against the certificate requirement. */
+/** Overall performance against the certificate requirement, with each month shown for progress. */
 function MonthScores({ e, compact }: { e: Eligibility; compact?: boolean }) {
+  const v = e.overall ?? 0;
+  const met = e.overall !== null && e.overall >= e.min;
   return (
-    <ul className={`months ${compact ? 'compact' : ''}`} aria-label={`Performance by month (needs ${e.min}% or more)`}>
-      {e.months.map((m) => {
-        const cls = m.state === 'upcoming' ? 'up' : m.state === 'current' ? (m.score !== null && m.score >= e.min ? 'cur ok' : 'cur') : m.passed ? 'ok' : 'bad';
-        return (
-          <li key={m.n} className={cls} title={`${m.range}: ${m.assigned} tasks assigned, ${m.completed} completed`}>
-            <span className="m-l">{m.label}</span>
-            <b className="num">{m.state === 'upcoming' ? '—' : m.score === null ? 'No tasks' : `${m.score}%`}</b>
-            {!compact && <span className="m-s">{m.state === 'upcoming' ? 'Upcoming' : m.state === 'current' ? 'In progress' : m.passed ? 'Met' : 'Below target'}</span>}
-          </li>
-        );
-      })}
-    </ul>
+    <div className={`overall ${compact ? 'compact' : ''}`}>
+      <div className="overall-head">
+        <span>Overall{e.ended ? '' : ' so far'}</span>
+        <b className={`num ${met ? 'ok' : ''}`}>{e.overall === null ? 'No tasks yet' : `${e.overall}%`}</b>
+        <span className="faint">target {e.min}%</span>
+      </div>
+      <div className="overall-bar" role="img" aria-label={`Overall performance ${e.overall ?? 0}% of a ${e.min}% target`}>
+        <i style={{ width: `${Math.min(100, v)}%` }} className={met ? 'ok' : ''} />
+        <span className="target" style={{ left: `${e.min}%` }} />
+      </div>
+      {!compact && (
+        <ul className="months" aria-label="Performance by month">
+          {e.months.map((m) => (
+            <li key={m.n} className={m.state === 'upcoming' ? 'up' : m.state === 'current' ? 'cur' : ''} title={`${m.range}: ${m.assigned} tasks assigned, ${m.completed} completed`}>
+              <span className="m-l">{m.label}</span>
+              <b className="num">{m.state === 'upcoming' ? '—' : m.score === null ? 'No tasks' : `${m.score}%`}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -260,7 +271,7 @@ function MyDocuments() {
           <div className="doc-ico gold"><Award /></div>
           <div className="doc-body">
             <h2>Internship certificate</h2>
-            {!i ? <p className="muted">Available after your internship, when your performance score is {data.min_score}% or higher in every month.</p>
+            {!i ? <p className="muted">Available after your internship, when your overall performance score is {data.min_score}% or higher.</p>
               : i.certificate ? (i.certificate.revoked
                 ? <p className="doc-state bad"><Ban size={15} /> This certificate has been withdrawn. Contact the admin.</p>
                 : <>
@@ -269,8 +280,8 @@ function MyDocuments() {
                   </>)
               : i.eligibility && (
                 <>
-                  <p className="muted">Needs a performance score of <b>{i.eligibility.min}%</b> or higher in every month of your internship.</p>
-                  <MonthScores e={i.eligibility} compact />
+                  <p className="muted">Needs an overall performance score of <b>{i.eligibility.min}%</b> or higher across your internship.</p>
+                  <MonthScores e={i.eligibility} />
                   <p className={`doc-state ${i.eligibility.eligible ? 'ok' : i.eligibility.ended ? 'bad' : 'wait'}`}>
                     {i.eligibility.eligible ? <CheckCircle2 size={15} /> : i.eligibility.ended ? <Ban size={15} /> : <Lock size={15} />} {i.eligibility.reason}
                   </p>
@@ -403,7 +414,7 @@ function AdminLetters() {
                       {!i?.cert_ref ? (i?.eligibility ? (
                         <>
                           <MonthScores e={i.eligibility} compact />
-                          <div className={`small ${i.eligibility.eligible ? 'up' : 'faint'}`} style={{ marginTop: 4 }}>{i.eligibility.eligible ? 'Eligible' : i.eligibility.ended ? 'Not eligible' : `Needs ${data.min_score}%+ each month`}</div>
+                          <div className={`small ${i.eligibility.eligible ? 'up' : 'faint'}`} style={{ marginTop: 4 }}>{i.eligibility.eligible ? 'Eligible' : i.eligibility.ended ? 'Not eligible' : `Needs ${data.min_score}%+ overall`}</div>
                         </>
                       ) : <span className="faint">—</span>) : (
                         <>
@@ -568,7 +579,7 @@ function CertForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; onS
       <form id="cert-form" className="stack" style={{ gap: 12 }} onSubmit={submit}>
         {i.cert_ref
           ? <p className="muted small">Certificate No. <b>{i.cert_ref}</b>, issued {fmt(i.cert_issued_on)}. The number stays the same when you edit.</p>
-          : <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}. Performance met the requirement in every month:</p>}
+          : <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}. Overall performance met the requirement:</p>}
         {i.eligibility && <MonthScores e={i.eligibility} />}
         <div className="field">
           <label htmlFor="cf-r">Short appreciation <span className="faint">(optional, printed on the certificate)</span></label>

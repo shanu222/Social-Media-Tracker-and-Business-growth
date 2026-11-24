@@ -35,22 +35,47 @@ export function verifyCode() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
 }
 
-/** Turns a photo/scan of a signature into a trimmed PNG with a transparent background. */
+/**
+ * Turns a photo or scan of a signature into a tightly cropped PNG with a transparent background.
+ * Like a scanner app: the paper colour is estimated locally (so shadows and grey paper vanish),
+ * only the ink is kept, and the image is cropped to the ink so the signature fills its space.
+ */
 export async function cleanSignature(buf) {
-  // Even out lighting from phone photos, then cut away the empty paper around the signature
-  let src = await sharp(buf).rotate().flatten({ background: '#ffffff' }).normalise().png().toBuffer();
-  try { src = await sharp(src).trim({ threshold: 40 }).png().toBuffer(); } catch { /* nothing to trim */ }
-  const { data, info } = await sharp(src).resize({ width: 900, height: 360, fit: 'inside', withoutEnlargement: true })
-    .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  // Paper (light) becomes transparent; ink stays solid, with a soft edge in between
-  for (let i = 0; i < data.length; i += 4) {
-    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const a = lum >= 215 ? 0 : lum <= 150 ? 255 : Math.round(((215 - lum) / 65) * 255);
-    data[i + 3] = a;
-    // Deepen the ink a little so faint pen strokes print clearly
-    if (a > 0) { data[i] = Math.round(data[i] * 0.75); data[i + 1] = Math.round(data[i + 1] * 0.75); data[i + 2] = Math.round(data[i + 2] * 0.8); }
+  const src = sharp(buf).rotate().flatten({ background: '#ffffff' }).resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true });
+  const { data: rgb, info } = await src.clone().removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const W = info.width, H = info.height, N = W * H;
+  const lum = Buffer.alloc(N);
+  for (let p = 0, q = 0; p < N; p++, q += 3) lum[p] = Math.round(0.299 * rgb[q] + 0.587 * rgb[q + 1] + 0.114 * rgb[q + 2]);
+  // Local paper brightness: a heavy blur (thin pen strokes barely affect it)
+  const bg = await sharp(lum, { raw: { width: W, height: H, channels: 1 } }).blur(Math.max(8, Math.round(Math.min(W, H) / 40))).raw().toBuffer();
+  const alpha = new Float32Array(N);
+  let minX = W, minY = H, maxX = -1, maxY = -1;
+  for (let p = 0; p < N; p++) {
+    const d = bg[p] - lum[p]; // how much darker than the paper around it
+    const a = d <= 22 ? 0 : d >= 70 ? 1 : (d - 22) / 48;
+    alpha[p] = a;
+    if (a > 0.35) {
+      const x = p % W, y = (p / W) | 0;
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
   }
-  return sharp(data, { raw: info }).png({ compressionLevel: 9 }).toBuffer();
+  if (maxX < 0) throw Object.assign(new Error('No signature found in the image. Upload a clear photo of the signature on white paper.'), { status: 400 });
+  // Crop to the ink with a small margin
+  const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.04) + 4;
+  const x0 = Math.max(0, minX - pad), y0 = Math.max(0, minY - pad), x1 = Math.min(W - 1, maxX + pad), y1 = Math.min(H - 1, maxY + pad);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const out = Buffer.alloc(cw * ch * 4);
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const p = (y + y0) * W + (x + x0), q = p * 3, o = (y * cw + x) * 4;
+      const a = alpha[p];
+      // Ink keeps its hue but is deepened so faint pen prints clearly
+      out[o] = Math.round(rgb[q] * 0.55); out[o + 1] = Math.round(rgb[q + 1] * 0.55); out[o + 2] = Math.round(rgb[q + 2] * 0.65);
+      out[o + 3] = Math.round(a * 255);
+    }
+  }
+  return sharp(out, { raw: { width: cw, height: ch, channels: 4 } })
+    .resize({ width: 1000, height: 400, fit: 'inside', withoutEnlargement: true }).png({ compressionLevel: 9 }).toBuffer();
 }
 
 let sigCache = null; // { at, value }
@@ -116,7 +141,7 @@ export function letterTerms(i, ndaSignedAt) {
     ['Communication', 'You must attend scheduled meetings and stay responsive on RTL’s official channels: WhatsApp, email, Meeto360 and RTL’s internal workspace.'],
     ['Confidentiality and IP', `All company information, code, data and designs are confidential and must not be shared. All work you produce during the internship belongs to RTL. You remain bound by the Non-Disclosure and Confidentiality Agreement${ndaSignedAt ? ` you signed on ${longDate(ndaSignedAt)}` : ''}.`],
     ['Termination', `Either party may end the internship with ${i.notice_days} days’ notice; RTL may end it immediately for misconduct or a confidentiality breach.`],
-    ['Certificate', `On successful completion, with a performance score of at least ${CERT_MIN_SCORE}% in every month of the internship, you will receive an Internship Completion Certificate.`],
+    ['Certificate', `On successful completion, with an overall performance score of at least ${CERT_MIN_SCORE}% across the internship, you will receive an Internship Completion Certificate.`],
   ];
 }
 
@@ -140,7 +165,7 @@ export const INTERN_COLS = `i.id, i.user_id, i.role, i.start_date::text AS start
 /* ---------- Certificate eligibility ---------- */
 
 /** Minimum monthly performance score for the completion certificate. */
-export const CERT_MIN_SCORE = Math.min(100, Math.max(1, Number(process.env.CERT_MIN_SCORE) || 85));
+export const CERT_MIN_SCORE = Math.min(100, Math.max(1, Number(process.env.CERT_MIN_SCORE) || 90));
 
 const addMonths = (d, m) => {
   const x = new Date(`${d}T00:00:00Z`);
@@ -170,9 +195,9 @@ export function internshipMonths(start, end) {
 }
 
 /**
- * Whether the completion certificate can be issued: the internship has ended and the performance
- * score (Performance page: average of task completion and on-time completion) was at least
- * CERT_MIN_SCORE in every month. A month with no assigned tasks has no score and does not qualify.
+ * Whether the completion certificate can be issued: the internship has ended and the overall
+ * performance score across the whole internship (Performance page: average of task completion
+ * and on-time completion) is at least CERT_MIN_SCORE. Months are shown for progress only.
  */
 export async function certEligibility(i) {
   const today = todayPk();
@@ -181,21 +206,21 @@ export async function certEligibility(i) {
     const state = m.start > today ? 'upcoming' : m.end >= today ? 'current' : 'done';
     let ind = null;
     if (state !== 'upcoming') ind = (await personPerformance(i.user_id, m.start, m.end > today ? today : m.end, { light: true })).indicators;
-    const score = ind ? ind.score : null;
     months.push({
-      ...m, label: `Month ${m.n}`, range: shortRange(m.start, m.end), state, score,
+      ...m, label: `Month ${m.n}`, range: shortRange(m.start, m.end), state, score: ind ? ind.score : null,
       assigned: ind?.assigned ?? 0, completed: ind?.completed ?? 0,
-      passed: state === 'done' && score !== null && score >= CERT_MIN_SCORE,
     });
   }
+  const until = i.end_date < today ? i.end_date : today;
+  const all = i.start_date <= today ? (await personPerformance(i.user_id, i.start_date, until, { light: true })).indicators : null;
+  const overall = all ? all.score : null;
   const ended = today > i.end_date;
-  const failed = months.filter((m) => m.state === 'done' && !m.passed);
-  const eligible = ended && months.length > 0 && months.every((m) => m.passed);
+  const eligible = ended && overall !== null && overall >= CERT_MIN_SCORE;
   let reason;
-  if (eligible) reason = `Performance was ${CERT_MIN_SCORE}% or higher in every month.`;
-  else if (failed.length) reason = `Performance was below ${CERT_MIN_SCORE}% in ${failed.map((m) => `${m.label.toLowerCase()} (${m.score === null ? 'no tasks' : `${m.score}%`})`).join(', ')}.`;
-  else reason = `Available after ${longDate(i.end_date)} if performance stays at ${CERT_MIN_SCORE}% or higher every month.`;
-  return { min: CERT_MIN_SCORE, ended, eligible, reason, months };
+  if (eligible) reason = `Overall performance: ${overall}% — requirement met.`;
+  else if (ended) reason = overall === null ? 'No tasks were recorded during the internship.' : `Overall performance was ${overall}%, below the required ${CERT_MIN_SCORE}%.`;
+  else reason = `Available after ${longDate(i.end_date)} with an overall performance of ${CERT_MIN_SCORE}% or higher.`;
+  return { min: CERT_MIN_SCORE, ended, eligible, overall, assigned: all?.assigned ?? 0, completed: all?.completed ?? 0, reason, months };
 }
 
 /* ---------- Automatic joining letters ---------- */
