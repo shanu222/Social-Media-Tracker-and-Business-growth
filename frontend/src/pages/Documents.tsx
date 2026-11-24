@@ -13,7 +13,11 @@ interface LetterView {
 }
 interface Month { n: number; label: string; range: string; start: string; end: string; state: 'done' | 'current' | 'upcoming'; score: number | null; assigned: number; completed: number; passed: boolean }
 interface Eligibility { min: number; ended: boolean; eligible: boolean; reason: string; months: Month[] }
-interface ShareInfo { url: string; image: string; code: string; ref: string; title: string; text: string; issue_year: number; issue_month: number; name: string }
+interface ShareInfo {
+  url: string; image: string; code: string; ref: string; title: string; text: string; name: string;
+  captions: { linkedin: string; instagram: string; short: string }; linkedin_add: string | null;
+  company: { name: string; linkedin: string; instagram: string };
+}
 interface Mine {
   nda: { signed_at: string } | null;
   ceo_signature_ready: boolean;
@@ -69,36 +73,62 @@ function MonthScores({ e, compact }: { e: Eligibility; compact?: boolean }) {
   );
 }
 
-/** Public link plus one-tap sharing to social platforms. */
+/** Public link, ready-made captions and one-tap sharing, with the company page tagged. */
 function ShareModal({ s, kind, onClose }: { s: ShareInfo; kind: 'letter' | 'certificate'; onClose: () => void }) {
   const toast = useToast();
+  const [tab, setTab] = useState<'linkedin' | 'instagram'>('linkedin');
+  const [text, setText] = useState({ linkedin: s.captions.linkedin, instagram: s.captions.instagram });
   const enc = encodeURIComponent;
-  const liAdd = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${enc(s.title)}&organizationName=${enc('Resilience Technologies Labs (SMC-Private) Limited')}&issueYear=${s.issue_year}&issueMonth=${s.issue_month}&certUrl=${enc(s.url)}&certId=${enc(s.ref)}`;
-  const links: [string, string, string][] = [
-    ['LinkedIn post', `https://www.linkedin.com/sharing/share-offsite/?url=${enc(s.url)}`, 'li'],
-    ['Facebook', `https://www.facebook.com/sharer/sharer.php?u=${enc(s.url)}`, 'fb'],
-    ['X', `https://twitter.com/intent/tweet?text=${enc(s.text)}&url=${enc(s.url)}`, 'x'],
-    ['WhatsApp', `https://wa.me/?text=${enc(`${s.text} ${s.url}`)}`, 'wa'],
+  const copy = (v: string, what: string) => navigator.clipboard?.writeText(v).then(() => toast(`${what} copied`), () => toast(v));
+  const others: [string, string][] = [
+    ['Facebook', `https://www.facebook.com/sharer/sharer.php?u=${enc(s.url)}`],
+    ['X', `https://twitter.com/intent/tweet?text=${enc(s.text)}&url=${enc(s.url)}`],
+    ['WhatsApp', `https://wa.me/?text=${enc(`${s.text} ${s.url}`)}`],
   ];
-  const copy = () => navigator.clipboard?.writeText(s.url).then(() => toast('Link copied'), () => toast(s.url));
   return (
-    <Modal title={`Share your ${kind === 'certificate' ? 'certificate' : 'joining letter'}`} onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
-      <div className="stack" style={{ gap: 14 }}>
-        <img className="share-preview" src={s.image} alt={`${s.title} preview`} />
-        <div>
-          <label className="lbl muted small" htmlFor="share-url">Verified public link</label>
-          <div className="share-url">
-            <input id="share-url" className="input num" readOnly value={s.url} onFocus={(e) => e.currentTarget.select()} />
-            <button className="btn" onClick={copy}><Copy size={15} /> Copy</button>
-            <a className="btn btn-ghost" href={s.url} target="_blank" rel="noopener noreferrer" aria-label="Open public page"><ExternalLink size={15} /></a>
+    <Modal title={`Share your ${kind === 'certificate' ? 'certificate' : 'joining letter'}`} onClose={onClose} wide footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
+      <div className="share-layout">
+        <div className="stack" style={{ gap: 12 }}>
+          <img className="share-preview" src={s.image} alt={`${s.title} preview`} />
+          <div>
+            <label className="lbl muted small" htmlFor="share-url">Verified public link</label>
+            <div className="share-url">
+              <input id="share-url" className="input num" readOnly value={s.url} onFocus={(e) => e.currentTarget.select()} />
+              <button className="btn" onClick={() => copy(s.url, 'Link')}><Copy size={15} /> Copy</button>
+              <a className="btn btn-ghost" href={s.url} target="_blank" rel="noopener noreferrer" aria-label="Open public page"><ExternalLink size={15} /></a>
+            </div>
+            <p className="faint small" style={{ marginTop: 6 }}>Anyone with this link sees the official record. It's the same link as the QR code on your PDF.</p>
           </div>
-          <p className="faint small" style={{ marginTop: 6 }}>Anyone with this link sees the official record and can confirm it is genuine. The same link is in the QR code on your PDF.</p>
+          {s.linkedin_add && <a className="btn btn-linkedin" href={s.linkedin_add} target="_blank" rel="noopener noreferrer">Add to LinkedIn profile</a>}
+          <div className="share-grid three">{others.map(([label, href]) => <a key={label} className="btn" href={href} target="_blank" rel="noopener noreferrer">{label}</a>)}</div>
         </div>
-        {kind === 'certificate' && <a className="btn btn-linkedin" href={liAdd} target="_blank" rel="noopener noreferrer">Add to LinkedIn profile</a>}
-        <div className="share-grid">
-          {links.map(([label, href, cls]) => <a key={label} className={`btn share-${cls}`} href={href} target="_blank" rel="noopener noreferrer">{label}</a>)}
+
+        <div className="share-post">
+          <div className="seg" role="tablist" aria-label="Platform">
+            <button role="tab" aria-selected={tab === 'linkedin'} className={tab === 'linkedin' ? 'on' : ''} onClick={() => setTab('linkedin')}>LinkedIn post</button>
+            <button role="tab" aria-selected={tab === 'instagram'} className={tab === 'instagram' ? 'on' : ''} onClick={() => setTab('instagram')}>Instagram caption</button>
+          </div>
+          <textarea className="input share-text" rows={tab === 'linkedin' ? 10 : 6} value={text[tab]} onChange={(e) => setText({ ...text, [tab]: e.target.value })} aria-label={tab === 'linkedin' ? 'LinkedIn post text' : 'Instagram caption'} />
+          {tab === 'linkedin' ? (
+            <>
+              <div className="row" style={{ gap: 8 }}>
+                <a className="btn btn-linkedin" href={`https://www.linkedin.com/feed/?shareActive=true&text=${enc(text.linkedin)}`} target="_blank" rel="noopener noreferrer">Post on LinkedIn</a>
+                <button className="btn" onClick={() => copy(text.linkedin, 'Post')}><Copy size={15} /> Copy text</button>
+              </div>
+              <ol className="tag-steps">
+                <li>Press <b>Post on LinkedIn</b>. Your text opens in a new post.</li>
+                <li>To tag the company, place the cursor after the company name, delete it, type <b>@Resilience Technologies Labs</b> and choose <b>{s.company.name}</b> from the list.</li>
+                <li>Wait a moment for the certificate preview to appear, then post.</li>
+              </ol>
+              <a className="small" href={s.company.linkedin} target="_blank" rel="noopener noreferrer">Open RTL's LinkedIn page <ExternalLink size={12} /></a>
+            </>
+          ) : (
+            <>
+              <button className="btn" onClick={() => copy(text.instagram, 'Caption')}><Copy size={15} /> Copy caption</button>
+              <p className="faint small">Download the image from the public page and post it with this caption. <b>@{s.company.instagram}</b> is tagged automatically when you paste it. Put the link in your bio or story link sticker.</p>
+            </>
+          )}
         </div>
-        <p className="faint small">For Instagram or a WhatsApp status, download the image from the public page and post it with the link in your bio or caption.</p>
       </div>
     </Modal>
   );

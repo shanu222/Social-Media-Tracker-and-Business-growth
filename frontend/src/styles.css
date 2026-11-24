@@ -971,3 +971,10 @@ a.att:hover { filter: brightness(0.97); }
 .share-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .share-grid .btn { justify-content: center; }
 @media (max-width: 520px) { .share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.share-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.share-post { display: flex; flex-direction: column; gap: 10px; }
+.share-text { font-size: 13.5px; line-height: 1.5; resize: vertical; }
+.share-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tag-steps { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.tag-steps b { color: var(--ink); }
+@media (max-width: 760px) { .share-layout { grid-template-columns: minmax(0, 1fr); } }

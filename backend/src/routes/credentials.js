@@ -7,7 +7,7 @@ import { ah } from '../util.js';
 import { BRAND } from '../brand.js';
 import { INTERN_COLS, CERT_MIN_SCORE, getCompanySignature, longDate, roleTitle, durationText } from '../services/letters.js';
 import { certificateSvg, shareCardSvg, svgToPng, esc } from '../services/credentialArt.js';
-import { credentialsBase, credentialUrl } from '../services/credentialLinks.js';
+import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
 
 /*
  * Public credential pages (no sign-in), like the verification pages of online course certificates:
@@ -119,6 +119,7 @@ dt{color:var(--muted)}dd{margin:0;font-weight:600;overflow-wrap:anywhere}
 .btn svg{width:16px;height:16px;flex:none}
 .btn.primary{background:#0a66c2;border-color:#0a66c2;color:#fff}.btn.primary:hover{background:#09579f}
 .btn .li{color:#0a66c2}.btn .fb{color:#1877f2}.btn .wa{color:#25d366}
+.follow{margin:12px 0 0;font-size:13px;color:var(--muted)}
 .note{margin-top:22px;padding:14px 16px;border-radius:10px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:13px}
 .note b{color:var(--ink)}
 footer{max-width:1160px;margin:0 auto;padding:0 20px 34px;color:var(--muted);font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between}
@@ -145,7 +146,7 @@ function page({ title, head = '', body, nonce, script = '' }) {
 ${head}<style>${STYLE}</style></head><body>
 <header class="top"><div class="top-in"><img src="${LOGO_URI}" alt="RTL"><div><b>${esc(BRAND.legal)}</b><span>Credential verification</span></div><a class="lookup" href="/verify">Verify another credential</a></div></header><div class="bar"></div>
 ${body}
-<footer><span>© ${new Date().getFullYear()} ${esc(BRAND.legal)}</span><span><a href="mailto:${esc(BRAND.email)}">${esc(BRAND.email)}</a> · ${esc(BRAND.phone)} · <a href="${esc(BRAND.website)}" rel="noopener">${esc(BRAND.websiteLabel || BRAND.website)}</a></span></footer>
+<footer><span>© ${new Date().getFullYear()} ${esc(BRAND.legal)}</span><span><a href="mailto:${esc(BRAND.email)}">${esc(BRAND.email)}</a> · ${esc(BRAND.phone)} · <a href="https://${esc(BRAND.website.replace(/^https?:\/\//, ''))}" rel="noopener">${esc(BRAND.website.replace(/^https?:\/\//, ''))}</a> · <a href="${esc(BRAND.linkedin)}" rel="noopener">LinkedIn</a></span></footer>
 ${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`;
 }
 
@@ -192,7 +193,8 @@ router.get('/:code', ah(async (req, res) => {
     ? `I've completed my ${role}ship at Resilience Technologies Labs (RTL). Verified certificate:`
     : `I've joined Resilience Technologies Labs (RTL) as a ${role}. Verified joining letter:`;
   const enc = encodeURIComponent;
-  const liAdd = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${enc(docName)}&organizationName=${enc('Resilience Technologies Labs (SMC-Private) Limited')}&issueYear=${issuedYear}&issueMonth=${issuedMonth}&certUrl=${enc(url)}&certId=${enc(r.ref)}`;
+  const liAdd = linkedinAddUrl({ name: docName, issueYear: issuedYear, issueMonth: issuedMonth, url, ref: r.ref });
+  const cap = captions({ kind: isCert ? 'certificate' : 'letter', role: i.role, url, minScore: CERT_MIN_SCORE });
 
   const status = valid
     ? `<div class="status" role="status"><span class="ic">${ICONS.check}</span><div><h1>Verified ${isCert ? 'certificate' : 'joining letter'}</h1><p>This ${docName.toLowerCase()} was issued by ${esc(BRAND.legal)} to <b>${esc(name)}</b>. Checked ${esc(longDate(new Date().toISOString()))}.</p></div></div>`
@@ -212,13 +214,13 @@ router.get('/:code', ah(async (req, res) => {
 
   const share = valid ? `<div class="share"><h2>Share this ${isCert ? 'certificate' : 'letter'}</h2><div class="btns">
 ${isCert ? `<a class="btn primary" href="${esc(liAdd)}" target="_blank" rel="noopener">${ICONS.linkedin} Add to LinkedIn profile</a>` : ''}
-<a class="btn" href="https://www.linkedin.com/sharing/share-offsite/?url=${enc(url)}" target="_blank" rel="noopener"><span class="li">${ICONS.linkedin}</span> LinkedIn post</a>
+<a class="btn" href="https://www.linkedin.com/feed/?shareActive=true&text=${enc(cap.linkedin)}" target="_blank" rel="noopener"><span class="li">${ICONS.linkedin}</span> LinkedIn post</a>
 <a class="btn" href="https://www.facebook.com/sharer/sharer.php?u=${enc(url)}" target="_blank" rel="noopener"><span class="fb">${ICONS.facebook}</span> Facebook</a>
 <a class="btn" href="https://twitter.com/intent/tweet?text=${enc(shareText)}&url=${enc(url)}" target="_blank" rel="noopener">${ICONS.xsocial} X</a>
 <a class="btn" href="https://wa.me/?text=${enc(`${shareText} ${url}`)}" target="_blank" rel="noopener"><span class="wa">${ICONS.whatsapp}</span> WhatsApp</a>
 <button class="btn" type="button" id="copy" data-url="${esc(url)}">${ICONS.link} Copy link</button>
 <a class="btn" href="${esc(isCert ? `${url}/certificate.png` : img)}" download="${esc(`${r.ref.replace(/[^\w]+/g, '-')}.png`)}">${ICONS.download} Download image</a>
-</div></div>` : '';
+</div><p class="follow">Tag <a href="${esc(BRAND.linkedin)}" target="_blank" rel="noopener">${esc(BRAND.linkedinName)}</a> in your post: type <b>@Resilience Technologies Labs</b> and pick the company page.</p></div>` : '';
 
   const artSrc = isCert ? `${url}/certificate.png` : img;
   const body = `<main>${status}<div class="grid">

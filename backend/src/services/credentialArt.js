@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import QRCode from 'qrcode';
 import { BRAND } from '../brand.js';
 import { CERT_MIN_SCORE, durationText, longDate, roleTitle } from './letters.js';
+import { stampPng, stampStyle } from './stamp.js';
 
 /*
  * Certificate and share-card artwork as SVG with all text converted to outlines, so they render
@@ -129,9 +130,9 @@ export async function certificateSvg(o) {
   parts.push(text(F.sans, `${BRAND.ceoTitle}, RTL`, lx + colW / 2, by + 70, 19, { anchor: 'middle', fill: MUTED }));
 
   const sy = by - 8;
-  parts.push(`<circle cx="${cx}" cy="${sy}" r="92" fill="#ffffff" stroke="${NAVY}" stroke-width="3.5"/><circle cx="${cx}" cy="${sy}" r="81" fill="none" stroke="${CYAN}" stroke-width="1.4"/>`);
-  if (logo) parts.push(`<image href="${logo}" x="${cx - 52}" y="${sy - 68}" width="104" height="104"/>`);
-  parts.push(text(F.sansBold, 'OFFICIAL', cx, sy + 58, 13, { anchor: 'middle', ls: 0.22, fill: NAVY }));
+  // Company stamp
+  const st = await stampPng({ size: 640, ...stampStyle(i.cert_ref) });
+  parts.push(`<image href="${png64(st)}" x="${cx - 118}" y="${sy - 118}" width="236" height="236"/>`);
 
   const rx = W - 184 - colW, qs = 124;
   parts.push(`<image href="${qr}" x="${rx + colW - qs}" y="${by - 118}" width="${qs}" height="${qs}"/>`);

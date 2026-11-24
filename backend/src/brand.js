@@ -14,5 +14,10 @@ export const BRAND = {
   phone: process.env.BRAND_PHONE || '+92 340 3318127',
   website: process.env.BRAND_WEBSITE || 'sustainablesolution360.com',
   logo: path.join(here, '..', 'assets', 'rtl-logo.png'),
+  // Company LinkedIn page; LINKEDIN_ORG_ID (the number in the page's admin URL) links shared certificates to it
+  linkedin: process.env.BRAND_LINKEDIN || 'https://www.linkedin.com/company/resiliencetechnologieslabs',
+  linkedinName: process.env.BRAND_LINKEDIN_NAME || 'Resilience Technologies Labs (SMC-PRIVATE) Ltd.',
+  linkedinOrgId: String(process.env.LINKEDIN_ORG_ID || '').replace(/\D/g, ''),
+  instagram: process.env.BRAND_INSTAGRAM || 'resilience_technologies_labs',
   colors: { navy: '#0a1a3d', navy2: '#13285a', blue: '#1a5fe0', cyan: '#12b5e8', green: '#16b97a', greenDark: '#0b7f66' },
 };

@@ -7,6 +7,7 @@ import { BRAND } from '../brand.js';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { intro, letterTerms, longDate } from './letters.js';
 import { certificateSvg } from './credentialArt.js';
+import { stampPng, stampStyle } from './stamp.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LETTERHEAD = path.resolve(here, '../../assets/letterhead.jpg');
@@ -90,6 +91,8 @@ export async function renderJoiningLetter(o) {
   body(9.5).fillColor(MUTED).text(`${BRAND.ceoTitle}, RTL`, L, doc.y + 1, { width: colW });
   bold(10).text(`Accepted by: ${o.name}`, rx, ly + 4, { width: colW });
   body(9.5).fillColor(MUTED).text(o.acceptedAt ? `Date: ${longDate(o.acceptedAt)}` : 'Awaiting acceptance', rx, doc.y + 1, { width: colW });
+  // Company stamp over the CEO's signature, as on a hand-stamped letter
+  doc.image(await stampPng({ size: 520, ...stampStyle(i.letter_ref) }), L + 108, ly - 52, { width: 90, height: 90 });
 
   // Verification
   const vy = Math.max(doc.y + 9, 630), qs = 34;

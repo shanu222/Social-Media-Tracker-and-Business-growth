@@ -12,7 +12,8 @@ import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
   nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE,
 } from '../services/letters.js';
-import { credentialsBase, credentialUrl } from '../services/credentialLinks.js';
+import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
+import { BRAND } from '../brand.js';
 import { renderJoiningLetter, renderCertificate } from '../services/letterPdf.js';
 
 /*
@@ -78,13 +79,14 @@ function shareInfo(req, i, kind, name) {
   const cert = kind === 'certificate';
   const url = credentialUrl(req, cert ? i.cert_code : i.letter_code);
   const issued = cert ? i.cert_issued_on : i.letter_date;
+  const ref = cert ? i.cert_ref : i.letter_ref;
+  const title = cert ? 'Internship Completion Certificate' : `${roleTitle(i.role)} — Joining Letter`;
+  const c = captions({ kind, role: i.role, url, minScore: CERT_MIN_SCORE });
   return {
-    url, image: `${url}/image.png`, code: cert ? i.cert_code : i.letter_code, ref: cert ? i.cert_ref : i.letter_ref,
-    title: cert ? 'Internship Completion Certificate' : `${roleTitle(i.role)} — Joining Letter`,
-    text: cert
-      ? `I'm happy to share that I've completed my ${roleTitle(i.role)}ship at Resilience Technologies Labs (RTL). Verified certificate:`
-      : `I'm excited to share that I've joined Resilience Technologies Labs (RTL) as a ${roleTitle(i.role)}. Verified joining letter:`,
-    issue_year: Number(issued.slice(0, 4)), issue_month: Number(issued.slice(5, 7)), name,
+    url, image: `${url}/image.png`, code: cert ? i.cert_code : i.letter_code, ref, title, name,
+    text: c.short, captions: c,
+    linkedin_add: cert ? linkedinAddUrl({ name: title, issueYear: issued.slice(0, 4), issueMonth: Number(issued.slice(5, 7)), url, ref }) : null,
+    company: { name: BRAND.linkedinName, linkedin: BRAND.linkedin, instagram: BRAND.instagram },
   };
 }
 

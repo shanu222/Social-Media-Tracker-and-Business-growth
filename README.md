@@ -315,6 +315,12 @@ Every letter and certificate has a permanent public page at `<CREDENTIALS_URL>/v
 - **Permanent:** links never expire. Codes are stored permanently, and a page keeps working at every address that reaches the API. A withdrawn certificate shows as withdrawn.
 - **Professional address:** add a custom domain such as `credentials.sustainablesolution360.com` to the Railway API service (a CNAME record at your domain provider), then set `CREDENTIALS_URL=https://credentials.sustainablesolution360.com`. On that domain, the bare address opens the lookup page.
 
+### Company stamp and LinkedIn tagging
+
+- **Company stamp:** the round stamp ("Resilience Technologies Labs (SMC-Pvt) Ltd" around RTL) is redrawn as sharp vector art with ink texture and a slight tilt, so it looks hand-stamped (`backend/src/services/stamp.js`). It is placed over the CEO signature on joining letters and in the centre of certificates. Each document gets its own stable stamp angle and ink pattern.
+- **Captions and posting:** sharing offers ready-made LinkedIn and Instagram captions. **Post on LinkedIn** opens a new LinkedIn post with the caption filled in. The window shows how to tag the company page (type `@Resilience Technologies Labs` and pick the page). In Instagram captions, `@resilience_technologies_labs` is tagged automatically when pasted.
+- **Add to LinkedIn profile:** set `LINKEDIN_ORG_ID` (the number in the company page's admin address). Certificates added to profiles then show RTL's logo and link to the company page; without it, they show the company name only.
+
 Every acceptance, download, issue and withdrawal is recorded in the activity log. People are notified in the app and by email.
 
 ### Attachments in task comments
