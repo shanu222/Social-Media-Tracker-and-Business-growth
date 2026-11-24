@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Award, CheckCircle2, Clock, Download, FileSignature, Pencil, PenLine, ScrollText, ShieldCheck, Trash2, Upload, Undo2, Ban } from 'lucide-react';
+import { Award, CheckCircle2, Clock, Copy, Download, ExternalLink, FileSignature, Lock, Pencil, PenLine, ScrollText, Share2, ShieldCheck, Trash2, Upload, Undo2, Ban } from 'lucide-react';
 import { api, download } from '../api';
 import { BRAND } from '../brand';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal } from '../lib';
@@ -11,10 +11,17 @@ interface LetterView {
   accepted_at: string | null; name: string; terms: [string, string][];
   intro: { before: string; company: string; middle: string; role: string; after: string; date: string; end: string };
 }
+interface Month { n: number; label: string; range: string; start: string; end: string; state: 'done' | 'current' | 'upcoming'; score: number | null; assigned: number; completed: number; passed: boolean }
+interface Eligibility { min: number; ended: boolean; eligible: boolean; reason: string; months: Month[] }
+interface ShareInfo { url: string; image: string; code: string; ref: string; title: string; text: string; issue_year: number; issue_month: number; name: string }
 interface Mine {
   nda: { signed_at: string } | null;
   ceo_signature_ready: boolean;
-  internship: { letter: LetterView; certificate: { ref: string; issued_on: string; completed_on: string; revoked: boolean } | null } | null;
+  min_score: number;
+  internship: {
+    letter: LetterView; certificate: { ref: string; issued_on: string; completed_on: string; revoked: boolean } | null;
+    eligibility: Eligibility | null; share: { letter: ShareInfo | null; certificate: ShareInfo | null };
+  } | null;
 }
 
 const fmt = (d: string | null | undefined) => {
@@ -44,6 +51,59 @@ function LetterPreview({ l }: { l: LetterView }) {
   );
 }
 
+/** Month-by-month performance against the certificate requirement. */
+function MonthScores({ e, compact }: { e: Eligibility; compact?: boolean }) {
+  return (
+    <ul className={`months ${compact ? 'compact' : ''}`} aria-label={`Performance by month (needs ${e.min}% or more)`}>
+      {e.months.map((m) => {
+        const cls = m.state === 'upcoming' ? 'up' : m.state === 'current' ? (m.score !== null && m.score >= e.min ? 'cur ok' : 'cur') : m.passed ? 'ok' : 'bad';
+        return (
+          <li key={m.n} className={cls} title={`${m.range}: ${m.assigned} tasks assigned, ${m.completed} completed`}>
+            <span className="m-l">{m.label}</span>
+            <b className="num">{m.state === 'upcoming' ? '—' : m.score === null ? 'No tasks' : `${m.score}%`}</b>
+            {!compact && <span className="m-s">{m.state === 'upcoming' ? 'Upcoming' : m.state === 'current' ? 'In progress' : m.passed ? 'Met' : 'Below target'}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Public link plus one-tap sharing to social platforms. */
+function ShareModal({ s, kind, onClose }: { s: ShareInfo; kind: 'letter' | 'certificate'; onClose: () => void }) {
+  const toast = useToast();
+  const enc = encodeURIComponent;
+  const liAdd = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${enc(s.title)}&organizationName=${enc('Resilience Technologies Labs (SMC-Private) Limited')}&issueYear=${s.issue_year}&issueMonth=${s.issue_month}&certUrl=${enc(s.url)}&certId=${enc(s.ref)}`;
+  const links: [string, string, string][] = [
+    ['LinkedIn post', `https://www.linkedin.com/sharing/share-offsite/?url=${enc(s.url)}`, 'li'],
+    ['Facebook', `https://www.facebook.com/sharer/sharer.php?u=${enc(s.url)}`, 'fb'],
+    ['X', `https://twitter.com/intent/tweet?text=${enc(s.text)}&url=${enc(s.url)}`, 'x'],
+    ['WhatsApp', `https://wa.me/?text=${enc(`${s.text} ${s.url}`)}`, 'wa'],
+  ];
+  const copy = () => navigator.clipboard?.writeText(s.url).then(() => toast('Link copied'), () => toast(s.url));
+  return (
+    <Modal title={`Share your ${kind === 'certificate' ? 'certificate' : 'joining letter'}`} onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <img className="share-preview" src={s.image} alt={`${s.title} preview`} />
+        <div>
+          <label className="lbl muted small" htmlFor="share-url">Verified public link</label>
+          <div className="share-url">
+            <input id="share-url" className="input num" readOnly value={s.url} onFocus={(e) => e.currentTarget.select()} />
+            <button className="btn" onClick={copy}><Copy size={15} /> Copy</button>
+            <a className="btn btn-ghost" href={s.url} target="_blank" rel="noopener noreferrer" aria-label="Open public page"><ExternalLink size={15} /></a>
+          </div>
+          <p className="faint small" style={{ marginTop: 6 }}>Anyone with this link sees the official record and can confirm it is genuine. The same link is in the QR code on your PDF.</p>
+        </div>
+        {kind === 'certificate' && <a className="btn btn-linkedin" href={liAdd} target="_blank" rel="noopener noreferrer">Add to LinkedIn profile</a>}
+        <div className="share-grid">
+          {links.map(([label, href, cls]) => <a key={label} className={`btn share-${cls}`} href={href} target="_blank" rel="noopener noreferrer">{label}</a>)}
+        </div>
+        <p className="faint small">For Instagram or a WhatsApp status, download the image from the public page and post it with the link in your bio or caption.</p>
+      </div>
+    </Modal>
+  );
+}
+
 /* ---------------- Team member: My documents ---------------- */
 
 export default function Documents() {
@@ -56,10 +116,19 @@ function MyDocuments() {
   const { data, error, loading, reload } = useData<Mine>('/letters/mine');
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<{ s: ShareInfo; kind: 'letter' | 'certificate' } | null>(null);
 
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox error={error || ''} retry={reload} />;
   const i = data.internship;
+  const claim = async () => {
+    setBusy('claim');
+    try {
+      await api.post('/letters/mine/certificate/claim', {});
+      toast('Congratulations! Your certificate is ready.');
+      reload();
+    } catch (e) { toast((e as Error).message, true); } finally { setBusy(null); }
+  };
   const get = async (key: string, path: string, name: string) => {
     setBusy(key);
     try { await download(path, name); } catch (e) { toast((e as Error).message, true); } finally { setBusy(null); }
@@ -103,6 +172,7 @@ function MyDocuments() {
               {i.letter.accepted_at ? (
                 <>
                   <button className="btn btn-ghost" onClick={() => setReviewing(true)}>View</button>
+                  {i.share.letter && <button className="btn" onClick={() => setSharing({ s: i.share.letter!, kind: 'letter' })}><Share2 size={15} /> Share</button>}
                   <button className="btn btn-primary" disabled={busy === 'letter' || !data.ceo_signature_ready} onClick={() => get('letter', '/letters/mine/letter.pdf', `Joining-Letter-${fileRef(i.letter.ref)}.pdf`)}><Download size={15} /> {busy === 'letter' ? 'Preparing…' : 'Download'}</button>
                 </>
               ) : <button className="btn btn-primary" onClick={() => setReviewing(true)}>Review and accept</button>}
@@ -115,23 +185,38 @@ function MyDocuments() {
           <div className="doc-ico gold"><Award /></div>
           <div className="doc-body">
             <h2>Internship certificate</h2>
-            {!i ? <p className="muted">Issued when your internship is completed.</p>
-              : !i.certificate ? <p className="muted">Issued when your internship is completed{i.letter.end_date ? ` (planned end: ${fmt(i.letter.end_date)})` : ''}. You'll be notified.</p>
-              : i.certificate.revoked ? <p className="doc-state bad"><Ban size={15} /> This certificate has been withdrawn. Contact the admin.</p>
-              : <>
-                  <p className="doc-ref">{i.certificate.ref}</p>
-                  <p className="doc-state ok"><CheckCircle2 size={15} /> Issued on {fmt(i.certificate.issued_on)}</p>
-                </>}
+            {!i ? <p className="muted">Available after your internship, when your performance score is {data.min_score}% or higher in every month.</p>
+              : i.certificate ? (i.certificate.revoked
+                ? <p className="doc-state bad"><Ban size={15} /> This certificate has been withdrawn. Contact the admin.</p>
+                : <>
+                    <p className="doc-ref">{i.certificate.ref}</p>
+                    <p className="doc-state ok"><CheckCircle2 size={15} /> Issued on {fmt(i.certificate.issued_on)}</p>
+                  </>)
+              : i.eligibility && (
+                <>
+                  <p className="muted">Needs a performance score of <b>{i.eligibility.min}%</b> or higher in every month of your internship.</p>
+                  <MonthScores e={i.eligibility} compact />
+                  <p className={`doc-state ${i.eligibility.eligible ? 'ok' : i.eligibility.ended ? 'bad' : 'wait'}`}>
+                    {i.eligibility.eligible ? <CheckCircle2 size={15} /> : i.eligibility.ended ? <Ban size={15} /> : <Lock size={15} />} {i.eligibility.reason}
+                  </p>
+                </>
+              )}
           </div>
-          {i?.certificate && !i.certificate.revoked && (
+          {i && (i.certificate ? !i.certificate.revoked && (
             <div className="doc-actions">
+              {i.share.certificate && <button className="btn" onClick={() => setSharing({ s: i.share.certificate!, kind: 'certificate' })}><Share2 size={15} /> Share</button>}
               <button className="btn btn-primary" disabled={busy === 'cert' || !data.ceo_signature_ready} onClick={() => get('cert', '/letters/mine/certificate.pdf', `Internship-Certificate-${fileRef(i.certificate!.ref)}.pdf`)}><Download size={15} /> {busy === 'cert' ? 'Preparing…' : 'Download'}</button>
             </div>
-          )}
+          ) : i.eligibility?.eligible && (
+            <div className="doc-actions">
+              <button className="btn btn-primary" disabled={busy === 'claim' || !i.letter.accepted_at} onClick={claim}><Award size={15} /> {busy === 'claim' ? 'Issuing…' : 'Get my certificate'}</button>
+            </div>
+          ))}
         </section>
       </div>
       <p className="faint small docs-note">Every letter and certificate has a reference number and a QR code that anyone can use to check it is genuine.</p>
 
+      {sharing && <ShareModal s={sharing.s} kind={sharing.kind} onClose={() => setSharing(null)} />}
       {reviewing && i && <AcceptLetter letter={i.letter} ceoReady={data.ceo_signature_ready} onClose={() => setReviewing(false)} onDone={() => { setReviewing(false); reload(); }} />}
     </div>
   );
@@ -177,9 +262,10 @@ interface Internship {
   role: string; start_date: string; end_date: string; supervisor_name: string; supervisor_title: string | null; notice_days: number; stipend: string | null;
   letter_ref: string; letter_date: string; accepted_at: string | null;
   cert_ref: string | null; cert_issued_on: string | null; cert_completed_on: string | null; cert_remark: string | null; cert_revoked_at: string | null;
+  eligibility: Eligibility | null; letter_url: string; cert_url: string | null;
 }
 interface Person { user_id: number; name: string; email: string; title: string | null; active: boolean; nda_signed_at: string | null; nda_name: string | null; internship: Internship | null }
-interface AdminData { ceo_signature: { preview: string; updated_at: string } | null; people: Person[] }
+interface AdminData { ceo_signature: { preview: string; updated_at: string } | null; people: Person[]; credentials_base: string; custom_domain: boolean; min_score: number }
 
 function AdminLetters() {
   const toast = useToast();
@@ -206,6 +292,11 @@ function AdminLetters() {
       </div>
 
       <CeoSignature sig={data.ceo_signature} onChange={reload} />
+      {!data.custom_domain && (
+        <div className="notice info" style={{ marginTop: 12 }}>
+          <span>Share links and QR codes currently use <b className="num">{data.credentials_base}</b>. For a professional address such as <b>credentials.sustainablesolution360.com</b>, add it as a custom domain on the Railway API service and set <code>CREDENTIALS_URL</code>. Links already shared keep working.</span>
+        </div>
+      )}
 
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head"><div><h2>Team members</h2><p>{withLetters} of {data.people.length} have a joining letter.</p></div></div>
@@ -229,7 +320,12 @@ function AdminLetters() {
                       )}
                     </td>
                     <td>
-                      {!i?.cert_ref ? <span className="faint">{i ? 'Not issued' : '—'}</span> : (
+                      {!i?.cert_ref ? (i?.eligibility ? (
+                        <>
+                          <MonthScores e={i.eligibility} compact />
+                          <div className={`small ${i.eligibility.eligible ? 'up' : 'faint'}`} style={{ marginTop: 4 }}>{i.eligibility.eligible ? 'Eligible' : i.eligibility.ended ? 'Not eligible' : `Needs ${data.min_score}%+ each month`}</div>
+                        </>
+                      ) : <span className="faint">—</span>) : (
                         <>
                           <div className="num small"><b>{i.cert_ref}</b></div>
                           {i.cert_revoked_at ? <span className="badge badge-bad">Withdrawn</span> : <span className="badge badge-good">Issued {fmt(i.cert_issued_on)}</span>}
@@ -241,7 +337,8 @@ function AdminLetters() {
                         <>
                           <button className="btn btn-sm" title="Edit letter" onClick={() => setEditLetter(p)}><Pencil size={14} /> Letter</button>
                           <button className="btn btn-sm btn-ghost" disabled={busy === `l${p.user_id}`} aria-label={`Download joining letter for ${p.name}`} onClick={() => run(`l${p.user_id}`, () => download(`/letters/intern/${p.user_id}/letter.pdf`, `Joining-Letter-${fileRef(i.letter_ref)}.pdf`))}><Download size={14} /> PDF</button>
-                          <button className="btn btn-sm" onClick={() => setEditCert(p)}><Award size={14} /> {i.cert_ref ? 'Certificate' : 'Issue certificate'}</button>
+                          <a className="btn btn-sm btn-ghost" href={i.cert_url && !i.cert_revoked_at ? i.cert_url : i.letter_url} target="_blank" rel="noopener noreferrer" aria-label={`Open public page for ${p.name}`} title="Open public verification page"><ExternalLink size={14} /></a>
+                          {(i.cert_ref || i.eligibility?.eligible) && <button className="btn btn-sm" onClick={() => setEditCert(p)}><Award size={14} /> {i.cert_ref ? 'Certificate' : 'Issue certificate'}</button>}
                           {i.cert_ref && !i.cert_revoked_at && <button className="btn btn-sm btn-ghost" disabled={busy === `c${p.user_id}`} aria-label={`Download certificate for ${p.name}`} onClick={() => run(`c${p.user_id}`, () => download(`/letters/intern/${p.user_id}/certificate.pdf`, `Internship-Certificate-${fileRef(i.cert_ref!)}.pdf`))}><Download size={14} /> PDF</button>}
                         </>
                       )}
@@ -363,20 +460,19 @@ function LetterForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; o
 function CertForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const i = p.internship!;
-  const [completed, setCompleted] = useState(i.cert_completed_on || (i.end_date < todayStr() ? i.end_date : todayStr()));
   const [remark, setRemark] = useState(i.cert_remark || '');
   const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.post(`/letters/intern/${p.user_id}/certificate`, { completed_on: completed, remark: remark.trim() || null });
+      await api.post(`/letters/intern/${p.user_id}/certificate`, { remark: remark.trim() || null });
       toast(i.cert_ref ? 'Certificate updated' : `Certificate issued. ${p.name} has been notified.`);
       onSaved();
     } catch (err) { toast((err as Error).message, true); } finally { setBusy(false); }
   }
   async function revoke(restore: boolean) {
-    if (!restore && !window.confirm('Withdraw this certificate? It stops downloading and the verification page shows it as withdrawn.')) return;
+    if (!restore && !window.confirm('Withdraw this certificate? It stops downloading and its public page shows it as withdrawn.')) return;
     try { await api.post(`/letters/intern/${p.user_id}/certificate/revoke`, { restore }); toast(restore ? 'Certificate restored' : 'Certificate withdrawn'); onSaved(); } catch (err) { toast((err as Error).message, true); }
   }
   return (
@@ -390,9 +486,10 @@ function CertForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; onS
       </>
     }>
       <form id="cert-form" className="stack" style={{ gap: 12 }} onSubmit={submit}>
-        {i.cert_ref && <p className="muted small">Certificate No. <b>{i.cert_ref}</b>, issued {fmt(i.cert_issued_on)}. The number stays the same when you edit.</p>}
-        <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}</p>
-        <div className="field"><label htmlFor="cf-d">Completed on</label><input id="cf-d" type="date" className="input" required value={completed} onChange={(e) => setCompleted(e.target.value)} /></div>
+        {i.cert_ref
+          ? <p className="muted small">Certificate No. <b>{i.cert_ref}</b>, issued {fmt(i.cert_issued_on)}. The number stays the same when you edit.</p>
+          : <p className="muted small">{i.role} Intern · {fmt(i.start_date)} – {fmt(i.end_date)}. Performance met the requirement in every month:</p>}
+        {i.eligibility && <MonthScores e={i.eligibility} />}
         <div className="field">
           <label htmlFor="cf-r">Short appreciation <span className="faint">(optional, printed on the certificate)</span></label>
           <textarea id="cf-r" className="input" rows={2} maxLength={220} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. Consistently delivered high-quality content and grew the NET360 audience" />

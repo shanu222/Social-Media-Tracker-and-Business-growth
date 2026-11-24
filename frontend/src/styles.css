@@ -942,3 +942,32 @@ a.att:hover { filter: brightness(0.97); }
 .verify-dl dt { color: var(--muted); }
 .verify-dl dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .verify-card footer { padding: 12px 22px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); text-align: center; }
+.person-facts .score-pill { padding: 4px 10px; border-radius: 999px; background: #eef1f5; color: var(--muted); }
+.person-facts .score-pill b { color: var(--ink); margin-left: 4px; }
+.person-facts .score-pill.good { background: #e3f6ec; } .person-facts .score-pill.good b { color: #0f7a4d; }
+.person-facts .score-pill.mid { background: #fdf3e1; } .person-facts .score-pill.mid b { color: #8a560c; }
+.person-facts .score-pill.low { background: #fdecea; } .person-facts .score-pill.low b { color: #b8322a; }
+
+/* Certificate eligibility by month */
+.months { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; }
+.months li { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; display: flex; flex-direction: column; gap: 1px; background: #fff; }
+.months .m-l { font-size: 11.5px; color: var(--muted); }
+.months b { font-size: 15px; }
+.months .m-s { font-size: 11.5px; color: var(--muted); }
+.months li.ok { border-color: #bfe5d2; background: #f1faf5; } .months li.ok b { color: #0f7a4d; }
+.months li.bad { border-color: #f3c5c0; background: #fdf3f2; } .months li.bad b { color: #b8322a; }
+.months li.cur { border-style: dashed; } .months li.cur.ok b { color: #0f7a4d; }
+.months li.up b { color: var(--faint, #9aa4b2); }
+.months.compact { grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); margin: 6px 0 2px; }
+.months.compact li { padding: 4px 7px; }
+.months.compact b { font-size: 13px; }
+
+/* Sharing */
+.share-preview { width: 100%; border-radius: 10px; border: 1px solid var(--line); aspect-ratio: 1200 / 630; object-fit: cover; background: #0a1a3d; }
+.share-url { display: flex; gap: 6px; margin-top: 4px; }
+.share-url .input { flex: 1; min-width: 0; font-size: 13px; }
+.btn-linkedin { background: #0a66c2; border-color: #0a66c2; color: #fff; justify-content: center; }
+.btn-linkedin:hover { background: #09579f; color: #fff; }
+.share-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.share-grid .btn { justify-content: center; }
+@media (max-width: 520px) { .share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -6,7 +6,7 @@ import { api, download } from '../api';
 import { useAuth, useData, useToast, Loading, ErrorBox, ROLE_LABEL, prettyDate, todayStr, shiftDate, type Role } from '../lib';
 import { CHART } from '../brand';
 
-interface Ind { assigned: number; completed: number; in_progress: number; not_started: number; overdue: number; completion_rate: number | null; on_time_rate: number | null; late: number; avg_progress: number | null; avg_completion_hours: number | null; hours: number }
+interface Ind { assigned: number; completed: number; in_progress: number; not_started: number; overdue: number; completion_rate: number | null; on_time_rate: number | null; late: number; avg_progress: number | null; avg_completion_hours: number | null; hours: number; score?: number | null }
 interface TrendP { start: string; end: string; completed: number; on_time?: number; hours: number }
 interface PersonR {
   mode: 'person'; user: { id: number; name: string; title: string | null; role: Role }; range: { from: string; to: string }; previousRange: { from: string; to: string };
@@ -341,6 +341,7 @@ function Person({ r, back }: { r: PersonR; back?: () => void }) {
         <span className="avatar lg">{r.user.name.split(/\s+/).map((x) => x[0]).slice(0, 2).join('').toUpperCase()}</span>
         <div><h2>{r.user.name}</h2><div className="muted">{r.user.title || ROLE_LABEL[r.user.role]}</div></div>
         <div className="person-facts">
+          <span className={`score-pill ${i.score == null ? '' : i.score >= 85 ? 'good' : i.score >= 60 ? 'mid' : 'low'}`} title="Average of task completion and on-time completion">Performance score <b className="num">{i.score == null ? '—' : `${i.score}%`}</b></span>
           <span><b className="num">{i.assigned}</b> assigned</span><span><b className="num">{i.completed}</b> completed</span>
           <span><b className="num">{i.in_progress}</b> in progress</span><span className={i.overdue ? 'down' : ''}><b className="num">{i.overdue}</b> overdue</span>
         </div>

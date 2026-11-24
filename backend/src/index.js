@@ -32,6 +32,7 @@ import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import { upgradeToProductChecklists } from './services/checklistTemplates.js';
 import ndaRoutes, { requireNda } from './routes/nda.js';
 import letterRoutes, { verifyRouter } from './routes/letters.js';
+import credentialRoutes from './routes/credentials.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -83,6 +84,17 @@ app.use(
 );
 app.use('/api', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+// Public credential pages: /verify and /verify/<code> (share links and QR codes on letters and certificates)
+app.use('/verify', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: 'draft-7', legacyHeaders: false }), credentialRoutes);
+// On the dedicated credentials address (CREDENTIALS_URL), the bare domain opens the lookup page
+app.get('/', (req, res, next) => {
+  try {
+    const host = new URL(process.env.CREDENTIALS_URL || 'http://-').host;
+    if (host && host === req.get('host')) return res.redirect(302, '/verify');
+  } catch { /* not configured */ }
   next();
 });
 

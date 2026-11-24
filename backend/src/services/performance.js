@@ -10,7 +10,13 @@ import { addDays, today } from '../util.js';
  *  On-time completion    = completed on or before the due date ÷ completed × 100 (tasks without a due date count as on time)
  *  Work progress         = average reported progress of tasks still open
  *  Avg completion time   = average time from a task being sent to its completion
+ *  Performance score     = average of task completion rate and on-time completion (0–100).
+ *                          No score when nothing was assigned in the period.
  */
+
+/** The single performance score from the indicators (see above). */
+export const performanceScore = (ind) =>
+  ind.assigned ? round(((ind.completion_rate || 0) + (ind.completed ? ind.on_time_rate || 0 : 0)) / 2) : null;
 
 const TZ = config.timezone || 'Asia/Karachi';
 const round = (n, d = 0) => (n === null || n === undefined || !isFinite(n) ? null : Math.round(n * 10 ** d) / 10 ** d);
@@ -92,6 +98,7 @@ export async function personPerformance(userId, from, to, { productId = null, li
     avg_completion_hours: hoursToDone.length ? round(hoursToDone.reduce((a, b) => a + b, 0) / hoursToDone.length, 1) : null,
     hours: round(totalMinutes / 60, 1),
   };
+  indicators.score = performanceScore(indicators);
   if (light) return { indicators };
 
   // Time by product

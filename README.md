@@ -291,11 +291,31 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 
 - **CEO signature:** upload once (photo or scan on white paper). The background is removed automatically, and the signature is printed on every NDA, joining letter and certificate. It is stored encrypted.
 - **Joining letter:** the admin enters role, dates, supervisor, notice period and optional stipend. Each letter gets a running reference number (`RTL/HR/INT/2026/0001`) and is printed on the RTL letterhead (`backend/assets/letterhead.jpg`).
-- **Acceptance:** the team member reviews and accepts the letter in Growth Desk. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again.
-- **Certificate:** the admin issues it when the internship is complete, with an optional short appreciation. It gets its own number (`RTL/HR/CERT/2026/0001`). It can be withdrawn and restored.
+- **Acceptance:** the team member reviews and accepts the letter. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again. Accepted letters can't be deleted, because they may have been shared.
 - **NDA first:** letters and certificates can only be opened or downloaded after the NDA is signed. Anyone who hasn't signed is sent to the NDA screen first.
-- **Verification:** every document has a QR code and a link (`/verify/<code>`) that anyone can open without signing in to confirm it is genuine (or see that it was withdrawn).
-- Every acceptance, download, issue and withdrawal is recorded in the activity log. People are notified in the app and by email when a letter or certificate is ready.
+
+### Completion certificate: performance rule
+
+The certificate is available only after the internship ends **and** the person's **performance score was 85% or higher in every month** of the internship (`CERT_MIN_SCORE`).
+
+- **Performance score:** the same number shown on the Performance page — the average of task completion rate and on-time completion rate.
+- **Months:** counted from the start date (1 Dec – 31 Dec, 1 Jan – 31 Jan, …). A month with no assigned tasks has no score and does not qualify.
+- **Interns:** see their month-by-month scores on My documents. Once eligible, they press **Get my certificate** themselves.
+- **Admin:** can also issue it, and only when the person is eligible. The admin can add a short appreciation line and can withdraw or restore a certificate.
+- **Numbering:** certificates are numbered `RTL/HR/CERT/2026/0001`.
+
+### Public verification links and sharing
+
+Every letter and certificate has a permanent public page at `<CREDENTIALS_URL>/verify/<code>`, like the verification pages of online course certificates. The QR code on the PDF points to the same page.
+
+- **The page shows:** the official record (name, role, period, credential ID, issue date, valid or withdrawn) and the certificate image.
+- **Sharing:** buttons for **Add to LinkedIn profile**, LinkedIn post, Facebook, X, WhatsApp, copy link and download image. Shared links show a preview card on social media.
+- **Lookup:** `/verify` lets anyone type a code by hand.
+- **No internal names:** the pages never mention the internal workspace.
+- **Permanent:** links never expire. Codes are stored permanently, and a page keeps working at every address that reaches the API. A withdrawn certificate shows as withdrawn.
+- **Professional address:** add a custom domain such as `credentials.sustainablesolution360.com` to the Railway API service (a CNAME record at your domain provider), then set `CREDENTIALS_URL=https://credentials.sustainablesolution360.com`. On that domain, the bare address opens the lookup page.
+
+Every acceptance, download, issue and withdrawal is recorded in the activity log. People are notified in the app and by email.
 
 ### Attachments in task comments
 

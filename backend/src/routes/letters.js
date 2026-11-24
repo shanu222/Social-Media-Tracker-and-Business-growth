@@ -7,11 +7,12 @@ import { decryptBuffer } from '../crypto.js';
 import { ah, parse, zDate } from '../util.js';
 import { NDA_VERSION } from '../services/nda.js';
 import { notify } from '../notify.js';
-import { appUrl, emailUserResult, noticeEmail } from '../mailer.js';
+import { emailUserResult, noticeEmail } from '../mailer.js';
 import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
-  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle,
+  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE,
 } from '../services/letters.js';
+import { credentialsBase, credentialUrl } from '../services/credentialLinks.js';
 import { renderJoiningLetter, renderCertificate } from '../services/letterPdf.js';
 
 /*
@@ -31,7 +32,6 @@ const latestNda = (userId) => one(
   [userId]
 );
 const internFor = (userId) => one(`SELECT ${INTERN_COLS} FROM internships i WHERE i.user_id = $1`, [userId]);
-const verifyUrl = (code) => `${appUrl()}/verify/${code}`;
 const safeName = (s) => s.replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
 
 function fail(status, msg, code) { const e = new Error(msg); e.status = status; if (code) e.code = code; throw e; }
@@ -43,7 +43,7 @@ async function printName(userId) {
   return (await one('SELECT name FROM users WHERE id = $1', [userId]))?.name || 'Team Member';
 }
 
-async function letterPdf(i) {
+async function letterPdf(i, req) {
   const ceo = await getCompanySignature();
   if (!ceo) fail(409, 'The CEO signature has not been added yet, so letters cannot be issued. The admin can add it under Letters & certificates.', 'NO_CEO_SIGNATURE');
   // The signature that was on file when they accepted; if that copy was replaced since, use their current one
@@ -54,16 +54,16 @@ async function letterPdf(i) {
   return renderJoiningLetter({
     intern: i, name: nda?.full_name || await printName(i.user_id), ndaSignedAt: nda?.signed_at || null,
     ceoSig: ceo.png, memberSig: accepted ? await cleanSignature(decryptBuffer(accepted.signature_enc)) : null,
-    acceptedAt: i.accepted_at, verifyUrl: verifyUrl(i.letter_code),
+    acceptedAt: i.accepted_at, verifyUrl: credentialUrl(req, i.letter_code),
   });
 }
 
-async function certificatePdf(i) {
+async function certificatePdf(i, req) {
   if (!i.cert_ref) fail(404, 'The certificate has not been issued yet.');
   if (i.cert_revoked_at) fail(410, 'This certificate has been withdrawn.');
   const ceo = await getCompanySignature();
   if (!ceo) fail(409, 'The CEO signature has not been added yet, so certificates cannot be issued.', 'NO_CEO_SIGNATURE');
-  return renderCertificate({ intern: i, name: await printName(i.user_id), ceoSig: ceo.png, verifyUrl: verifyUrl(i.cert_code) });
+  return renderCertificate({ intern: i, name: await printName(i.user_id), ceoSig: ceo.png, verifyUrl: credentialUrl(req, i.cert_code) });
 }
 
 function sendPdf(res, buf, filename) {
@@ -73,10 +73,30 @@ function sendPdf(res, buf, filename) {
   res.send(buf);
 }
 
+/** Public links and share details for a document the person can show to others. */
+function shareInfo(req, i, kind, name) {
+  const cert = kind === 'certificate';
+  const url = credentialUrl(req, cert ? i.cert_code : i.letter_code);
+  const issued = cert ? i.cert_issued_on : i.letter_date;
+  return {
+    url, image: `${url}/image.png`, code: cert ? i.cert_code : i.letter_code, ref: cert ? i.cert_ref : i.letter_ref,
+    title: cert ? 'Internship Completion Certificate' : `${roleTitle(i.role)} — Joining Letter`,
+    text: cert
+      ? `I'm happy to share that I've completed my ${roleTitle(i.role)}ship at Resilience Technologies Labs (RTL). Verified certificate:`
+      : `I'm excited to share that I've joined Resilience Technologies Labs (RTL) as a ${roleTitle(i.role)}. Verified joining letter:`,
+    issue_year: Number(issued.slice(0, 4)), issue_month: Number(issued.slice(5, 7)), name,
+  };
+}
+
 /** What the member (or admin preview) sees on screen. */
-function view(i, { ndaSignedAt, name }) {
+function view(i, { ndaSignedAt, name, req, eligibility }) {
   if (!i) return null;
   return {
+    eligibility,
+    share: {
+      letter: i.accepted_at ? shareInfo(req, i, 'letter', name) : null,
+      certificate: i.cert_ref && !i.cert_revoked_at ? shareInfo(req, i, 'certificate', name) : null,
+    },
     letter: {
       ref: i.letter_ref, date: i.letter_date, role: roleTitle(i.role), start_date: i.start_date, end_date: i.end_date,
       duration: durationText(i.start_date, i.end_date), supervisor: [i.supervisor_name, i.supervisor_title].filter(Boolean).join(', '),
@@ -93,8 +113,26 @@ router.get('/mine', ah(async (req, res) => {
   res.json({
     nda: nda ? { signed_at: nda.signed_at } : null,
     ceo_signature_ready: !!ceo,
-    internship: view(i, { ndaSignedAt: nda?.signed_at, name: nda?.full_name || req.user.name }),
+    internship: view(i, {
+      ndaSignedAt: nda?.signed_at, name: nda?.full_name || req.user.name, req,
+      eligibility: i && !i.cert_ref ? await certEligibility(i) : null,
+    }),
+    min_score: CERT_MIN_SCORE,
   });
+}));
+
+/** The intern claims their certificate once eligible (85%+ every month, internship ended). */
+router.post('/mine/certificate/claim', ah(async (req, res) => {
+  const i = await internFor(req.user.id);
+  if (!i) return res.status(404).json({ error: 'No internship record found.' });
+  if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
+  if (!i.accepted_at) return res.status(409).json({ error: 'Accept your joining letter first.' });
+  if (!i.cert_ref) {
+    const el = await certEligibility(i);
+    if (!el.eligible) return res.status(409).json({ error: `Your certificate is not available yet. ${el.reason}` });
+    await issueCertificate(req, i, null);
+  }
+  res.json(await internFor(req.user.id));
 }));
 
 router.post('/mine/accept', ah(async (req, res) => {
@@ -116,7 +154,7 @@ router.get('/mine/letter.pdf', ah(async (req, res) => {
   if (!i) return res.status(404).json({ error: 'Your joining letter has not been prepared yet.' });
   if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
   if (!i.accepted_at) return res.status(409).json({ error: 'Accept the letter first, then download it.' });
-  const pdf = await letterPdf(i);
+  const pdf = await letterPdf(i, req);
   await audit(req, 'letter.downloaded', 'user', req.user.id, { ref: i.letter_ref });
   sendPdf(res, pdf, `Joining-Letter-${safeName(i.letter_ref)}.pdf`);
 }));
@@ -125,14 +163,14 @@ router.get('/mine/certificate.pdf', ah(async (req, res) => {
   const i = await internFor(req.user.id);
   if (!i) return res.status(404).json({ error: 'No internship record found.' });
   if (!await activeNda(req.user.id)) return res.status(403).json({ error: 'Please sign the NDA first.', code: 'NDA_REQUIRED' });
-  const pdf = await certificatePdf(i);
+  const pdf = await certificatePdf(i, req);
   await audit(req, 'certificate.downloaded', 'user', req.user.id, { ref: i.cert_ref });
   sendPdf(res, pdf, `Internship-Certificate-${safeName(i.cert_ref)}.pdf`);
 }));
 
 /* ---------------- Admin ---------------- */
 
-router.get('/admin', requireRole('admin'), ah(async (_req, res) => {
+router.get('/admin', requireRole('admin'), ah(async (req, res) => {
   const ceo = await getCompanySignature();
   const people = await many(
     `SELECT ${INTERN_COLS.replace(/\bi\.id\b/, 'i.id AS internship_id')},
@@ -144,8 +182,11 @@ router.get('/admin', requireRole('admin'), ah(async (_req, res) => {
      WHERE u.role <> 'admin' AND u.deleted_at IS NULL
      ORDER BY (i.id IS NULL), u.name`, [NDA_VERSION]
   );
+  const elig = new Map();
+  for (const p of people) if (p.internship_id && !p.cert_ref) elig.set(p.user_id, await certEligibility(p));
   res.json({
     ceo_signature: ceo ? { preview: pngDataUrl(ceo.png), updated_at: ceo.updated_at } : null,
+    credentials_base: credentialsBase(req), custom_domain: !!process.env.CREDENTIALS_URL, min_score: CERT_MIN_SCORE,
     people: people.map((p) => ({
       user_id: p.user_id, name: p.name, email: p.email, title: p.title, active: p.active,
       nda_signed_at: p.nda_signed_at, nda_name: p.nda_name,
@@ -153,6 +194,8 @@ router.get('/admin', requireRole('admin'), ah(async (_req, res) => {
         role: p.role, start_date: p.start_date, end_date: p.end_date, supervisor_name: p.supervisor_name, supervisor_title: p.supervisor_title,
         notice_days: p.notice_days, stipend: p.stipend, letter_ref: p.letter_ref, letter_date: p.letter_date, accepted_at: p.accepted_at,
         cert_ref: p.cert_ref, cert_issued_on: p.cert_issued_on, cert_completed_on: p.cert_completed_on, cert_remark: p.cert_remark, cert_revoked_at: p.cert_revoked_at,
+        eligibility: elig.get(p.user_id) || null,
+        letter_url: credentialUrl(req, p.letter_code), cert_url: p.cert_code ? credentialUrl(req, p.cert_code) : null,
       } : null,
     })),
   });
@@ -249,50 +292,56 @@ router.delete('/intern/:userId(\\d+)', requireRole('admin'), ah(async (req, res)
   const i = await internFor(userIdParam(req));
   if (!i) return res.status(404).json({ error: 'No joining letter for this person.' });
   if (i.cert_ref) return res.status(409).json({ error: 'A certificate has been issued for this internship, so it cannot be deleted. Withdraw the certificate instead.' });
+  // Once accepted, the letter may have been shared; its verification link must keep working
+  if (i.accepted_at) return res.status(409).json({ error: 'This letter has been accepted and may have been shared, so it is kept on record. Edit it instead.' });
   await query('DELETE FROM internships WHERE id = $1', [i.id]);
   await audit(req, 'letter.deleted', 'user', i.user_id, { ref: i.letter_ref });
   res.json({ ok: true });
 }));
 
-const certSchema = z.object({
-  completed_on: zDate,
-  remark: z.string().trim().max(220).optional().nullable(),
-});
+const certSchema = z.object({ remark: z.string().trim().max(220).optional().nullable() });
 
-/** Issue the completion certificate (or edit it; the certificate number stays the same). */
+/** Assigns the certificate number and verification code, then tells the intern. */
+async function issueCertificate(req, i, remark) {
+  await tx(async (c) => {
+    const today = todayPk();
+    const ref = await nextRef(c, 'certificate', Number(today.slice(0, 4)));
+    await c.query(
+      `UPDATE internships SET cert_ref=$2, cert_code=$3, cert_issued_on=$4, cert_completed_on=end_date, cert_remark=$5, cert_revoked_at=NULL, updated_at=now()
+       WHERE id=$1 AND cert_ref IS NULL`,
+      [i.id, ref, verifyCode(), today, remark || null]
+    );
+  });
+  const n = await internFor(i.user_id);
+  await audit(req, 'certificate.issued', 'user', i.user_id, { ref: n.cert_ref, by: req.user.id === i.user_id ? 'claimed' : 'admin' });
+  const admins = await many("SELECT id FROM users WHERE role = 'admin' AND active AND deleted_at IS NULL");
+  await notify([i.user_id, ...admins.map((a) => a.id)], { kind: 'letter', title: req.user.id === i.user_id ? `${req.user.name} received their internship certificate` : 'Your internship certificate is ready', body: n.cert_ref, link: '/documents' }, req.user.id);
+  await emailUserResult(i.user_id, {
+    kind: 'letter', subject: 'Your RTL internship certificate',
+    ...noticeEmail({
+      heading: 'Your internship certificate is ready',
+      intro: `Congratulations on completing your internship at RTL with a performance score of ${CERT_MIN_SCORE}% or higher every month. Download your certificate and share its verified link on LinkedIn and other platforms.`,
+      rows: [['Certificate No.', n.cert_ref], ['Role', roleTitle(n.role)], ['Verify', credentialUrl(req, n.cert_code)]],
+      link: '/documents', button: 'Download certificate',
+    }),
+  }, { important: true, ref: `certificate:${i.user_id}` }).catch(() => {});
+  return n;
+}
+
+/** Issue the completion certificate (only when eligible), or edit the appreciation line afterwards. */
 router.post('/intern/:userId(\\d+)/certificate', requireRole('admin'), ah(async (req, res) => {
   const i = await internFor(userIdParam(req));
   if (!i) return res.status(404).json({ error: 'Set up the joining letter first.' });
-  const b = parse(certSchema, req.body);
-  if (b.completed_on < i.start_date) return res.status(400).json({ error: 'The completion date cannot be before the internship started.' });
-  const first = !i.cert_ref;
-  if (first) {
-    await tx(async (c) => {
-      const today = todayPk();
-      const ref = await nextRef(c, 'certificate', Number(today.slice(0, 4)));
-      await c.query(
-        `UPDATE internships SET cert_ref=$2, cert_code=$3, cert_issued_on=$4, cert_completed_on=$5, cert_remark=$6, cert_revoked_at=NULL, updated_at=now() WHERE id=$1`,
-        [i.id, ref, verifyCode(), today, b.completed_on, b.remark || null]
-      );
-    });
-  } else {
-    await query('UPDATE internships SET cert_completed_on=$2, cert_remark=$3, updated_at=now() WHERE id=$1', [i.id, b.completed_on, b.remark || null]);
+  const b = parse(certSchema, req.body || {});
+  if (i.cert_ref) {
+    await query('UPDATE internships SET cert_remark=$2, updated_at=now() WHERE id=$1', [i.id, b.remark || null]);
+    await audit(req, 'certificate.updated', 'user', i.user_id, { ref: i.cert_ref });
+    return res.json(await internFor(i.user_id));
   }
-  const n = await internFor(i.user_id);
-  await audit(req, first ? 'certificate.issued' : 'certificate.updated', 'user', i.user_id, { ref: n.cert_ref });
-  if (first) {
-    await notify([i.user_id], { kind: 'letter', title: 'Your internship certificate is ready', body: n.cert_ref, link: '/documents' }, req.user.id);
-    await emailUserResult(i.user_id, {
-      kind: 'letter', subject: 'Your RTL internship certificate is ready',
-      ...noticeEmail({
-        heading: 'Your internship certificate is ready',
-        intro: 'Congratulations on completing your internship at RTL. Your Internship Completion Certificate is ready to download in Growth Desk.',
-        rows: [['Certificate No.', n.cert_ref], ['Role', roleTitle(n.role)], ['Completed on', longDate(n.cert_completed_on)]],
-        link: '/documents', button: 'Download certificate',
-      }),
-    }, { important: true, ref: `certificate:${i.user_id}` }).catch(() => {});
-  }
-  res.json(n);
+  if (!i.accepted_at) return res.status(409).json({ error: 'The intern has not accepted the joining letter yet.' });
+  const el = await certEligibility(i);
+  if (!el.eligible) return res.status(409).json({ error: `Not eligible yet. ${el.reason}` });
+  res.json(await issueCertificate(req, i, b.remark));
 }));
 
 router.post('/intern/:userId(\\d+)/certificate/revoke', requireRole('admin'), ah(async (req, res) => {
@@ -307,7 +356,7 @@ router.post('/intern/:userId(\\d+)/certificate/revoke', requireRole('admin'), ah
 router.get('/intern/:userId(\\d+)/letter.pdf', requireRole('admin'), ah(async (req, res) => {
   const i = await internFor(userIdParam(req));
   if (!i) return res.status(404).json({ error: 'No joining letter for this person.' });
-  const pdf = await letterPdf(i);
+  const pdf = await letterPdf(i, req);
   await audit(req, 'letter.downloaded', 'user', i.user_id, { ref: i.letter_ref, by: 'admin' });
   sendPdf(res, pdf, `Joining-Letter-${safeName(i.letter_ref)}.pdf`);
 }));
@@ -316,7 +365,7 @@ router.get('/intern/:userId(\\d+)/certificate.pdf', requireRole('admin'), ah(asy
   const i = await internFor(userIdParam(req));
   if (!i) return res.status(404).json({ error: 'No internship record found.' });
   if (i.cert_revoked_at) fail(410, 'This certificate has been withdrawn. Restore it to download.');
-  const pdf = await certificatePdf(i);
+  const pdf = await certificatePdf(i, req);
   await audit(req, 'certificate.downloaded', 'user', i.user_id, { ref: i.cert_ref, by: 'admin' });
   sendPdf(res, pdf, `Internship-Certificate-${safeName(i.cert_ref)}.pdf`);
 }));

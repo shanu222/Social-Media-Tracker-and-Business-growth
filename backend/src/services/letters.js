@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { one, query } from '../db.js';
 import { encryptBuffer, decryptBuffer } from '../crypto.js';
 import { BRAND } from '../brand.js';
+import { personPerformance } from './performance.js';
 
 /*
  * Joining letters and internship certificates.
@@ -110,10 +111,10 @@ export function letterTerms(i, ndaSignedAt) {
     ['Stipend', i.stipend
       ? `You will receive a stipend of ${i.stipend}, subject to satisfactory performance and attendance.`
       : 'This is an unpaid learning internship. Committed, high-performing interns may later be offered a paid internship at RTL’s discretion.'],
-    ['Communication', 'You must attend scheduled meetings and stay responsive on RTL’s official channels: WhatsApp, email, Meeto360 and Growth Desk.'],
+    ['Communication', 'You must attend scheduled meetings and stay responsive on RTL’s official channels: WhatsApp, email, Meeto360 and RTL’s internal workspace.'],
     ['Confidentiality and IP', `All company information, code, data and designs are confidential and must not be shared. All work you produce during the internship belongs to RTL. You remain bound by the Non-Disclosure and Confidentiality Agreement${ndaSignedAt ? ` you signed on ${longDate(ndaSignedAt)}` : ''}.`],
     ['Termination', `Either party may end the internship with ${i.notice_days} days’ notice; RTL may end it immediately for misconduct or a confidentiality breach.`],
-    ['Certificate', 'On successful completion, you will receive an Internship Completion Certificate.'],
+    ['Certificate', `On successful completion, with a performance score of at least ${CERT_MIN_SCORE}% in every month of the internship, you will receive an Internship Completion Certificate.`],
   ];
 }
 
@@ -132,3 +133,64 @@ export const INTERN_COLS = `i.id, i.user_id, i.role, i.start_date::text AS start
   i.supervisor_name, i.supervisor_title, i.notice_days, i.stipend, i.letter_ref, i.letter_date::text AS letter_date, i.letter_code,
   i.accepted_at, i.accepted_ip, i.accepted_nda_id, i.cert_ref, i.cert_code, i.cert_issued_on::text AS cert_issued_on,
   i.cert_completed_on::text AS cert_completed_on, i.cert_remark, i.cert_revoked_at, i.created_at, i.updated_at`;
+
+/* ---------- Certificate eligibility ---------- */
+
+/** Minimum monthly performance score for the completion certificate. */
+export const CERT_MIN_SCORE = Math.min(100, Math.max(1, Number(process.env.CERT_MIN_SCORE) || 85));
+
+const addMonths = (d, m) => {
+  const x = new Date(`${d}T00:00:00Z`);
+  const day = x.getUTCDate();
+  x.setUTCDate(1); x.setUTCMonth(x.getUTCMonth() + m);
+  const last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+  x.setUTCDate(Math.min(day, last));
+  return x.toISOString().slice(0, 10);
+};
+const dayBefore = (d) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); };
+const shortRange = (a, b) => {
+  const f = (d, y) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+  return `${f(a)} – ${f(b, true)}`;
+};
+
+/** The internship split into months: 1 Dec – 31 Dec, 1 Jan – 31 Jan, … (the last one ends on the end date). */
+export function internshipMonths(start, end) {
+  const out = [];
+  for (let k = 0; k < 24; k++) {
+    const s = addMonths(start, k);
+    if (s > end) break;
+    let e = dayBefore(addMonths(start, k + 1));
+    if (e > end) e = end;
+    out.push({ n: k + 1, start: s, end: e });
+  }
+  return out;
+}
+
+/**
+ * Whether the completion certificate can be issued: the internship has ended and the performance
+ * score (Performance page: average of task completion and on-time completion) was at least
+ * CERT_MIN_SCORE in every month. A month with no assigned tasks has no score and does not qualify.
+ */
+export async function certEligibility(i) {
+  const today = todayPk();
+  const months = [];
+  for (const m of internshipMonths(i.start_date, i.end_date)) {
+    const state = m.start > today ? 'upcoming' : m.end >= today ? 'current' : 'done';
+    let ind = null;
+    if (state !== 'upcoming') ind = (await personPerformance(i.user_id, m.start, m.end > today ? today : m.end, { light: true })).indicators;
+    const score = ind ? ind.score : null;
+    months.push({
+      ...m, label: `Month ${m.n}`, range: shortRange(m.start, m.end), state, score,
+      assigned: ind?.assigned ?? 0, completed: ind?.completed ?? 0,
+      passed: state === 'done' && score !== null && score >= CERT_MIN_SCORE,
+    });
+  }
+  const ended = today > i.end_date;
+  const failed = months.filter((m) => m.state === 'done' && !m.passed);
+  const eligible = ended && months.length > 0 && months.every((m) => m.passed);
+  let reason;
+  if (eligible) reason = `Performance was ${CERT_MIN_SCORE}% or higher in every month.`;
+  else if (failed.length) reason = `Performance was below ${CERT_MIN_SCORE}% in ${failed.map((m) => `${m.label.toLowerCase()} (${m.score === null ? 'no tasks' : `${m.score}%`})`).join(', ')}.`;
+  else reason = `Available after ${longDate(i.end_date)} if performance stays at ${CERT_MIN_SCORE}% or higher every month.`;
+  return { min: CERT_MIN_SCORE, ended, eligible, reason, months };
+}
