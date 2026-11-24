@@ -34,6 +34,7 @@ import { ensureAllJoiningLetters } from './services/letters.js';
 import ndaRoutes, { requireNda } from './routes/nda.js';
 import letterRoutes, { verifyRouter } from './routes/letters.js';
 import credentialRoutes from './routes/credentials.js';
+import { watchCredentialsSite } from './services/credentialLinks.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -89,7 +90,7 @@ app.use('/api', (_req, res, next) => {
 });
 
 // Public credential pages: /verify and /verify/<code> (share links and QR codes on letters and certificates)
-app.use('/verify', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: 'draft-7', legacyHeaders: false }), credentialRoutes);
+app.use('/verify', rateLimit({ windowMs: 15 * 60 * 1000, limit: 3000, standardHeaders: 'draft-7', legacyHeaders: false }), credentialRoutes);
 // On the dedicated credentials address (CREDENTIALS_URL), the bare domain opens the lookup page
 app.get('/', (req, res, next) => {
   try {
@@ -236,7 +237,10 @@ async function start() {
       { timezone: config.timezone }
     );
   }
-  app.listen(config.port, () => console.log(`Growth Desk API listening on :${config.port}`));
+  app.listen(config.port, () => {
+    console.log(`Growth Desk API listening on :${config.port}`);
+    watchCredentialsSite();
+  });
 }
 
 start().catch((e) => {

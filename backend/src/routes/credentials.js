@@ -21,6 +21,8 @@ import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../ser
  * They never mention the internal workspace, and they keep working for as long as the record exists.
  */
 const router = Router();
+// Lets the API confirm that the company website forwards /verify here
+router.use((_req, res, next) => { res.setHeader('X-RTL-Credentials', '1'); next(); });
 
 const normCode = (raw) => {
   const c = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

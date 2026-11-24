@@ -13,7 +13,7 @@ import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
   nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, ensureJoiningLetter, ensureAllJoiningLetters, teamFor, supervisorText,
 } from '../services/letters.js';
-import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
+import { credentialsBase, credentialUrl, linkedinAddUrl, captions, usingCompanyAddress } from '../services/credentialLinks.js';
 import { BRAND } from '../brand.js';
 import { renderJoiningLetter, renderCertificate } from '../services/letterPdf.js';
 
@@ -254,7 +254,7 @@ router.get('/admin', requireRole('admin'), ah(async (req, res) => {
   for (const p of people) if (p.internship_id && !p.cert_ref) elig.set(p.user_id, await certEligibility(p));
   res.json({
     ceo_signature: ceo ? { preview: pngDataUrl(ceo.png), updated_at: ceo.updated_at } : null,
-    credentials_base: credentialsBase(req), custom_domain: !!process.env.CREDENTIALS_URL, min_score: CERT_MIN_SCORE,
+    credentials_base: credentialsBase(req), custom_domain: usingCompanyAddress(), min_score: CERT_MIN_SCORE,
     people: people.map((p) => ({
       user_id: p.user_id, name: p.name, email: p.email, title: p.title, active: p.active,
       nda_signed_at: p.nda_signed_at, nda_name: p.nda_name,

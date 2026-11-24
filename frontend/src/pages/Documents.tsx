@@ -380,7 +380,7 @@ function AdminLetters() {
       <CeoSignature sig={data.ceo_signature} onChange={reload} />
       {!data.custom_domain && (
         <div className="notice info" style={{ marginTop: 12 }}>
-          <span>Share links and QR codes currently use <b className="num">{data.credentials_base}</b>. For a professional address such as <b>credentials.sustainablesolution360.com</b>, add it as a custom domain on the Railway API service and set <code>CREDENTIALS_URL</code>. Links already shared keep working.</span>
+          <span>Share links and QR codes currently use <b className="num">{data.credentials_base}</b>. They switch to <b>sustainablesolution360.com/verify/…</b> automatically as soon as the company website forwards <code>/verify</code> (it checks every 10 minutes). Links already shared keep working.</span>
         </div>
       )}
 

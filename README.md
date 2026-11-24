@@ -325,7 +325,7 @@ Every letter and certificate has a permanent public page at `<CREDENTIALS_URL>/v
 - **Lookup:** `/verify` lets anyone type a code by hand.
 - **No internal names:** the pages never mention the internal workspace.
 - **Permanent:** links never expire. Codes are stored permanently, and a page keeps working at every address that reaches the API. A withdrawn certificate shows as withdrawn.
-- **Professional address:** add a custom domain such as `credentials.sustainablesolution360.com` to the Railway API service (a CNAME record at your domain provider), then set `CREDENTIALS_URL=https://credentials.sustainablesolution360.com`. On that domain, the bare address opens the lookup page.
+- **Professional address:** the company website (`sustainablesolution360.com`, repo `shanu222/solution360`) forwards `/verify` to this API, so links read `https://sustainablesolution360.com/verify/<code>`. The API checks after start-up (and every 10 minutes) that the website really forwards — it looks for its own `X-RTL-Credentials` header — and only then uses that address. Until then, links use the API's own address, so they never break. `CREDENTIALS_SITE` changes the website, and `CREDENTIALS_URL` forces an address without the check.
 
 ### Company stamp and LinkedIn tagging
 
