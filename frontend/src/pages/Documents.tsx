@@ -187,7 +187,7 @@ function MyDocuments() {
           <div className="doc-ico"><FileSignature /></div>
           <div className="doc-body">
             <h2>Joining letter</h2>
-            {!i ? <p className="muted">Your joining letter will appear here once the admin prepares it. You'll get a notification and an email.</p> : (
+            {!i ? <p className="muted">Your joining letter is created automatically once you sign the NDA. Refresh this page in a moment.</p> : (
               <>
                 <p className="doc-ref">{i.letter.ref} · {i.letter.role}</p>
                 <p className="muted">{fmt(i.letter.start_date)} – {fmt(i.letter.end_date)} · {i.letter.duration}</p>
@@ -317,7 +317,7 @@ function AdminLetters() {
       <div className="page-head">
         <div>
           <h1>Letters & certificates</h1>
-          <p className="muted">Prepare joining letters and issue internship certificates. Team members can download them only after signing the NDA.</p>
+          <p className="muted">Every team member gets a joining letter automatically when they sign the NDA. Edit the role or dates here, and issue certificates when the performance requirement is met.</p>
         </div>
       </div>
 

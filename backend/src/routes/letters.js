@@ -10,7 +10,7 @@ import { notify } from '../notify.js';
 import { emailUserResult, noticeEmail } from '../mailer.js';
 import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
-  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE,
+  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, ensureJoiningLetter, ensureAllJoiningLetters,
 } from '../services/letters.js';
 import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
 import { BRAND } from '../brand.js';
@@ -111,6 +111,7 @@ function view(i, { ndaSignedAt, name, req, eligibility }) {
 /* ---------------- Team member ---------------- */
 
 router.get('/mine', ah(async (req, res) => {
+  await ensureJoiningLetter(req.user.id);
   const [i, nda, ceo] = await Promise.all([internFor(req.user.id), activeNda(req.user.id), getCompanySignature()]);
   res.json({
     nda: nda ? { signed_at: nda.signed_at } : null,
@@ -173,6 +174,7 @@ router.get('/mine/certificate.pdf', ah(async (req, res) => {
 /* ---------------- Admin ---------------- */
 
 router.get('/admin', requireRole('admin'), ah(async (req, res) => {
+  await ensureAllJoiningLetters();
   const ceo = await getCompanySignature();
   const people = await many(
     `SELECT ${INTERN_COLS.replace(/\bi\.id\b/, 'i.id AS internship_id')},

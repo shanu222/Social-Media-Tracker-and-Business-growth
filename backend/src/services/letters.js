@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import sharp from 'sharp';
-import { one, query } from '../db.js';
+import { many, one, query, tx } from '../db.js';
+import { notify } from '../notify.js';
+import { emailUserResult, noticeEmail } from '../mailer.js';
 import { encryptBuffer, decryptBuffer } from '../crypto.js';
 import { BRAND } from '../brand.js';
 import { personPerformance } from './performance.js';
@@ -193,4 +195,75 @@ export async function certEligibility(i) {
   else if (failed.length) reason = `Performance was below ${CERT_MIN_SCORE}% in ${failed.map((m) => `${m.label.toLowerCase()} (${m.score === null ? 'no tasks' : `${m.score}%`})`).join(', ')}.`;
   else reason = `Available after ${longDate(i.end_date)} if performance stays at ${CERT_MIN_SCORE}% or higher every month.`;
   return { min: CERT_MIN_SCORE, ended, eligible, reason, months };
+}
+
+/* ---------- Automatic joining letters ---------- */
+
+/** Internship role from a job title: "Social Media Manager" → "Social Media" (printed as "Social Media Intern"). */
+export function roleFromTitle(title) {
+  const t = String(title || '').trim();
+  if (!t) return 'Social Media';
+  if (/\bintern\b/i.test(t)) return t.replace(/\s*\binternship\b/i, '').trim();
+  const r = t.replace(/\s+(manager|executive|officer|lead|specialist|associate|assistant|coordinator|head|member)$/i, '').trim();
+  return r || t;
+}
+
+const plusMonthsMinusDay = (d, m) => {
+  const x = new Date(`${d}T00:00:00Z`);
+  x.setUTCMonth(x.getUTCMonth() + m); x.setUTCDate(x.getUTCDate() - 1);
+  return x.toISOString().slice(0, 10);
+};
+
+/**
+ * Every team member who has signed the NDA gets a joining letter automatically: role from their job
+ * title, start date = the day they joined the workspace, three months, supervised by the CEO.
+ * The admin can edit any of it. Returns true when a letter was created.
+ */
+export async function ensureJoiningLetter(userId, { notifyUser = true } = {}) {
+  const u = await one(
+    `SELECT u.id, u.name, u.title, u.role, u.deleted_at, (u.created_at AT TIME ZONE 'Asia/Karachi')::date::text AS joined,
+       EXISTS (SELECT 1 FROM nda_signatures n WHERE n.user_id = u.id AND n.superseded_at IS NULL) AS signed,
+       EXISTS (SELECT 1 FROM internships i WHERE i.user_id = u.id) AS has_letter
+     FROM users u WHERE u.id = $1`, [userId]
+  );
+  if (!u || u.role === 'admin' || u.deleted_at || !u.signed || u.has_letter) return false;
+  const start = u.joined;
+  const letterDate = todayPk();
+  const created = await tx(async (c) => {
+    const ref = await nextRef(c, 'letter', Number(letterDate.slice(0, 4)));
+    const { rowCount } = await c.query(
+      `INSERT INTO internships (user_id, role, start_date, end_date, supervisor_name, supervisor_title, notice_days, letter_date, letter_ref, letter_code)
+       VALUES ($1,$2,$3,$4,$5,$6,7,$7,$8,$9) ON CONFLICT (user_id) DO NOTHING`,
+      [u.id, roleFromTitle(u.title), start, plusMonthsMinusDay(start, 3), BRAND.ceo, BRAND.ceoTitle, letterDate, ref, verifyCode()]
+    );
+    if (!rowCount) throw Object.assign(new Error('exists'), { skip: true });
+    return ref;
+  }).catch((e) => { if (e.skip) return null; throw e; });
+  if (!created) return false;
+  if (notifyUser) {
+    await notify([u.id], { kind: 'letter', title: 'Your joining letter is ready', body: created, link: '/documents' });
+    await emailUserResult(u.id, {
+      kind: 'letter', subject: 'Your RTL internship joining letter is ready',
+      ...noticeEmail({
+        heading: 'Your joining letter is ready',
+        intro: 'Your internship joining letter is ready in My documents. Review and accept it to download your signed copy and share its verified link.',
+        rows: [['Reference', created]], link: '/documents', button: 'Open my documents',
+      }),
+    }, { important: true, ref: `letter:${u.id}` }).catch(() => {});
+  }
+  return true;
+}
+
+/** One pass for everyone who has already signed the NDA (runs at start-up; safe to repeat). */
+export async function ensureAllJoiningLetters() {
+  const rows = await many(
+    `SELECT u.id FROM users u
+     WHERE u.role <> 'admin' AND u.deleted_at IS NULL
+       AND EXISTS (SELECT 1 FROM nda_signatures n WHERE n.user_id = u.id AND n.superseded_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM internships i WHERE i.user_id = u.id)
+     ORDER BY u.id`
+  );
+  let n = 0;
+  for (const r of rows) if (await ensureJoiningLetter(r.id).catch((e) => { console.error('[letters]', e.message); return false; })) n++;
+  return n;
 }

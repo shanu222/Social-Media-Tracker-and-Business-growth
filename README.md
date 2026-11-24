@@ -290,7 +290,8 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 **Letters & certificates** (admin) and **My documents** (team members).
 
 - **CEO signature:** upload once (photo or scan on white paper). The background is removed automatically, and the signature is printed on every NDA, joining letter and certificate. It is stored encrypted.
-- **Joining letter:** the admin enters role, dates, supervisor, notice period and optional stipend. Each letter gets a running reference number (`RTL/HR/INT/2026/0001`) and is printed on the RTL letterhead (`backend/assets/letterhead.jpg`).
+- **Automatic for everyone who signed the NDA:** existing signers get their joining letter at start-up, and new members get theirs the moment they sign. The defaults are the role from their job title ("Social Media Manager" → "Social Media Intern"), a start date of the day they joined, three months, and the CEO as supervisor. They are notified in the app and by email.
+- **Joining letter:** the admin can edit role, dates, supervisor, notice period and optional stipend. Each letter gets a running reference number (`RTL/HR/INT/2026/0001`) and is printed on the RTL letterhead (`backend/assets/letterhead.jpg`).
 - **Acceptance:** the team member reviews and accepts the letter. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again. Accepted letters can't be deleted, because they may have been shared.
 - **NDA first:** letters and certificates can only be opened or downloaded after the NDA is signed. Anyone who hasn't signed is sent to the NDA screen first.
 

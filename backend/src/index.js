@@ -30,6 +30,7 @@ import postRoutes from './routes/posts.js';
 import messageRoutes from './routes/messages.js';
 import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import { upgradeToProductChecklists } from './services/checklistTemplates.js';
+import { ensureAllJoiningLetters } from './services/letters.js';
 import ndaRoutes, { requireNda } from './routes/nda.js';
 import letterRoutes, { verifyRouter } from './routes/letters.js';
 import credentialRoutes from './routes/credentials.js';
@@ -211,6 +212,7 @@ async function start() {
   await migrate();
   await upgradeToProductKpis(tx).then((r) => r && console.log('[setup] KPIs moved to per-product sets')).catch((e) => console.error('[setup] KPI upgrade failed', e.message));
   await upgradeToProductChecklists(tx).then((r) => r && console.log('[setup] Checklists moved to per-product routines')).catch((e) => console.error('[setup] checklist upgrade failed', e.message));
+  await ensureAllJoiningLetters().then((n) => n && console.log(`[setup] Joining letters created for ${n} team member(s) who signed the NDA`)).catch((e) => console.error('[setup] joining letters failed', e.message));
   await bootstrapAdmin();
   await bootstrapManager();
   await bootstrapNotifyEmails();

@@ -9,7 +9,7 @@ import { NDA_TITLE, NDA_VERSION, ndaSections, ndaHash, normalizeCnic, maskCnic }
 import { renderNdaPdf } from '../services/ndaPdf.js';
 import { notify } from '../notify.js';
 import { emailUserResult, noticeEmail } from '../mailer.js';
-import { getCompanySignature, pngDataUrl } from '../services/letters.js';
+import { getCompanySignature, pngDataUrl, ensureJoiningLetter } from '../services/letters.js';
 
 /*
  * NDA signing. Everyone except admins must sign the current version before using the workspace
@@ -140,6 +140,8 @@ router.post('/sign', ah(async (req, res) => {
 
   // Email the signed PDF to the signer and to the admins (each keeps a copy)
   emailCopies(sig, admins).catch((e) => console.error('[nda] email copies failed', e.message));
+  // Their joining letter becomes available as soon as the NDA is signed
+  ensureJoiningLetter(req.user.id).catch((e) => console.error('[letters] auto letter failed', e.message));
   res.status(201).json(await presentFull(sig));
 }));
 
