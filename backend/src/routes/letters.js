@@ -11,7 +11,7 @@ import { notify } from '../notify.js';
 import { emailUserResult, noticeEmail } from '../mailer.js';
 import {
   INTERN_COLS, cleanSignature, getCompanySignature, setCompanySignature, removeCompanySignature, pngDataUrl,
-  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, ensureJoiningLetter, ensureAllJoiningLetters,
+  nextRef, verifyCode, letterTerms, intro, longDate, todayPk, durationText, roleTitle, certEligibility, CERT_MIN_SCORE, ensureJoiningLetter, ensureAllJoiningLetters, teamFor, supervisorText,
 } from '../services/letters.js';
 import { credentialsBase, credentialUrl, linkedinAddUrl, captions } from '../services/credentialLinks.js';
 import { BRAND } from '../brand.js';
@@ -110,7 +110,7 @@ function view(i, { ndaSignedAt, name, req, eligibility }) {
     },
     letter: {
       ref: i.letter_ref, date: i.letter_date, role: roleTitle(i.role), start_date: i.start_date, end_date: i.end_date,
-      duration: durationText(i.start_date, i.end_date), supervisor: [i.supervisor_name, i.supervisor_title].filter(Boolean).join(', '),
+      duration: durationText(i.start_date, i.end_date), supervisor: supervisorText(i),
       accepted_at: i.accepted_at, intro: intro(i), terms: letterTerms(i, ndaSignedAt), name,
     },
     certificate: i.cert_ref ? { ref: i.cert_ref, issued_on: i.cert_issued_on, completed_on: i.cert_completed_on, revoked: !!i.cert_revoked_at } : null,
@@ -214,11 +214,12 @@ router.post('/mine/cv', ah(async (req, res) => {
   const reaccept = changed && !!i.accepted_at;
   await query(
     `UPDATE internships SET cv_enc=$2, cv_name=$3, cv_mime=$4, cv_size=$5, cv_uploaded_at=now(), cv_skills=$6, cv_position=$7, role=$8,
+       supervisor_title = CASE WHEN supervisor_name = 'Team Lead' AND $9 THEN $11 ELSE supervisor_title END,
        role_source = CASE WHEN $9 THEN 'cv' ELSE role_source END,
        accepted_at = CASE WHEN $10 THEN NULL ELSE accepted_at END, accepted_ip = CASE WHEN $10 THEN NULL ELSE accepted_ip END,
        accepted_nda_id = CASE WHEN $10 THEN NULL ELSE accepted_nda_id END, updated_at = now()
      WHERE id = $1`,
-    [i.id, encryptBuffer(buf), b.name, mime, buf.length, r.skills, r.position, newRole, !locked && !!r.position, reaccept]
+    [i.id, encryptBuffer(buf), b.name, mime, buf.length, r.skills, r.position, newRole, !locked && !!r.position, reaccept, teamFor(newRole)]
   );
   await audit(req, 'cv.uploaded', 'user', req.user.id, { position: r.position, method: r.method });
   const admins = await many("SELECT id FROM users WHERE role = 'admin' AND active AND deleted_at IS NULL");

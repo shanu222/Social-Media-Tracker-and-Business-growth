@@ -125,12 +125,47 @@ export const durationText = (start, end) => {
 };
 export const roleTitle = (role) => (/\bintern$/i.test(role.trim()) ? role.trim() : `${role.trim()} Intern`);
 
+/* ---------- Supervising team ---------- */
+
+/** Letters name a team lead rather than a person, e.g. "the Team Lead, Software Development". */
+export const TEAM_LEAD = 'Team Lead';
+const TEAMS = {
+  'Software Developer': 'Software Development', 'Mobile App Developer': 'Software Development', 'DevOps Engineer': 'Software Development',
+  'QA Engineer': 'Software Development', 'Cybersecurity Analyst': 'Software Development',
+  'AI/ML Engineer': 'AI & Data', 'Data Analyst': 'AI & Data',
+  'UI/UX Designer': 'Design & Creative', 'Graphic Designer': 'Design & Creative', 'Video Editor': 'Design & Creative',
+  'Social Media Manager': 'Social Media & Marketing', 'Digital Marketing Specialist': 'Social Media & Marketing', 'Content Writer': 'Content & Communications',
+  'Business Developer': 'Business Development', 'Project Coordinator': 'Operations', 'HR Associate': 'Human Resources',
+  'Civil Engineer': 'Engineering & Research', 'GIS Analyst': 'Engineering & Research', 'Research Assistant': 'Engineering & Research',
+  'Accountant': 'Finance', 'Customer Support Specialist': 'Client Support',
+};
+/** The team a position belongs to (by exact position, else by keywords). */
+export function teamFor(role) {
+  const r = String(role || '').replace(/\s*intern$/i, '').trim();
+  if (TEAMS[r]) return TEAMS[r];
+  const l = r.toLowerCase();
+  if (/social|marketing|seo|brand/.test(l)) return 'Social Media & Marketing';
+  if (/content|writ|copy/.test(l)) return 'Content & Communications';
+  if (/develop|software|web|app|engineer.*(software|devops)|programm/.test(l)) return 'Software Development';
+  if (/design|video|creative|ui|ux|graphic/.test(l)) return 'Design & Creative';
+  if (/data|ai|machine|ml/.test(l)) return 'AI & Data';
+  if (/civil|structur|gis|research/.test(l)) return 'Engineering & Research';
+  if (/business|sales/.test(l)) return 'Business Development';
+  if (/hr|human/.test(l)) return 'Human Resources';
+  return 'Operations';
+}
+/** "the Team Lead, Social Media & Marketing" for team leads; names as written otherwise. */
+export function supervisorText(i) {
+  if (i.supervisor_name === TEAM_LEAD) return `the ${TEAM_LEAD}, ${i.supervisor_title || teamFor(i.role)}`;
+  return [i.supervisor_name, i.supervisor_title].filter(Boolean).join(', ');
+}
+
 /**
  * The joining letter's numbered terms, as [label, text] pairs.
  * Shared by the PDF and the on-screen preview so both always say the same thing.
  */
 export function letterTerms(i, ndaSignedAt) {
-  const sup = [i.supervisor_name, i.supervisor_title].filter(Boolean).join(', ');
+  const sup = supervisorText(i);
   return [
     ['Duration', `${durationText(i.start_date, i.end_date)}, from ${longDate(i.start_date)} to ${longDate(i.end_date)}.`],
     ['Supervisor', `You will report to ${sup}.`],
@@ -260,7 +295,7 @@ export async function ensureJoiningLetter(userId, { notifyUser = true } = {}) {
     const { rowCount } = await c.query(
       `INSERT INTO internships (user_id, role, start_date, end_date, supervisor_name, supervisor_title, notice_days, letter_date, letter_ref, letter_code)
        VALUES ($1,$2,$3,$4,$5,$6,7,$7,$8,$9) ON CONFLICT (user_id) DO NOTHING`,
-      [u.id, roleFromTitle(u.title), start, plusMonthsMinusDay(start, 3), BRAND.ceo, BRAND.ceoTitle, letterDate, ref, verifyCode()]
+      [u.id, roleFromTitle(u.title), start, plusMonthsMinusDay(start, 3), TEAM_LEAD, teamFor(roleFromTitle(u.title)), letterDate, ref, verifyCode()]
     );
     if (!rowCount) throw Object.assign(new Error('exists'), { skip: true });
     return ref;
@@ -282,6 +317,9 @@ export async function ensureJoiningLetter(userId, { notifyUser = true } = {}) {
 
 /** One pass for everyone who has already signed the NDA (runs at start-up; safe to repeat). */
 export async function ensureAllJoiningLetters() {
+  // Letters made with the CEO as supervisor now name the intern's team lead instead (no personal names)
+  const old = await many('SELECT id, role FROM internships WHERE supervisor_name = $1 AND supervisor_title = $2', [BRAND.ceo, BRAND.ceoTitle]);
+  for (const r of old) await query('UPDATE internships SET supervisor_name = $2, supervisor_title = $3, updated_at = now() WHERE id = $1', [r.id, TEAM_LEAD, teamFor(r.role)]);
   const rows = await many(
     `SELECT u.id FROM users u
      WHERE u.role <> 'admin' AND u.deleted_at IS NULL

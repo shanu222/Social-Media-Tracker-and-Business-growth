@@ -499,7 +499,7 @@ function LetterForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; o
   const [f, setF] = useState({
     role: i?.role || (p.title ? p.title.replace(/\s*intern$/i, '') : ''),
     start_date: start0, end_date: i?.end_date || plusMonths(start0, 3),
-    supervisor_name: i?.supervisor_name || BRAND.ceo, supervisor_title: i?.supervisor_title ?? BRAND.ceoTitle,
+    supervisor_name: i?.supervisor_name || 'Team Lead', supervisor_title: i?.supervisor_title ?? '',
     notice_days: i?.notice_days ?? 7, stipend: i?.stipend || '', letter_date: i?.letter_date || todayStr(),
   });
   const [busy, setBusy] = useState(false);
@@ -534,8 +534,8 @@ function LetterForm({ p, onClose, onSaved }: { p: Person; onClose: () => void; o
         </div>
         <div className="row" style={{ gap: 6, marginTop: -4 }}>{[1, 2, 3, 6].map((m) => <button type="button" key={m} className="btn btn-sm btn-ghost" onClick={() => setF({ ...f, end_date: plusMonths(f.start_date, m) })}>{m} month{m > 1 ? 's' : ''}</button>)}</div>
         <div className="form-grid">
-          <div className="field"><label htmlFor="lf-sn">Supervisor</label><input id="lf-sn" className="input" required value={f.supervisor_name} onChange={set('supervisor_name')} /></div>
-          <div className="field"><label htmlFor="lf-st">Supervisor's designation</label><input id="lf-st" className="input" value={f.supervisor_title} onChange={set('supervisor_title')} /></div>
+          <div className="field"><label htmlFor="lf-sn">Reports to</label><input id="lf-sn" className="input" required value={f.supervisor_name} onChange={set('supervisor_name')} placeholder="Team Lead" /></div>
+          <div className="field"><label htmlFor="lf-st">Team</label><input id="lf-st" className="input" value={f.supervisor_title} onChange={set('supervisor_title')} placeholder="From the position, e.g. Software Development" /></div>
         </div>
         <div className="form-grid">
           <div className="field"><label htmlFor="lf-n">Notice period (days)</label><input id="lf-n" type="number" min={1} max={60} className="input num" value={f.notice_days} onChange={set('notice_days')} /></div>
