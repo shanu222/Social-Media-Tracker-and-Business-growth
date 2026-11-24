@@ -48,6 +48,31 @@ export async function cvText(buf, mime) {
   return String(value || '');
 }
 
+/** CV text with its line breaks kept (for reading). PDFs are rebuilt line by line from the page layout. */
+export async function cvReadableText(buf, mime) {
+  if (mime !== 'application/pdf') return cvText(buf, mime);
+  const { getDocumentProxy } = await import('unpdf');
+  const pdf = await getDocumentProxy(new Uint8Array(buf));
+  const pages = [];
+  for (let n = 1; n <= Math.min(pdf.numPages, 8); n++) {
+    const content = await (await pdf.getPage(n)).getTextContent();
+    let out = '', lastY = null;
+    for (const it of content.items) {
+      if (typeof it.str !== 'string') continue;
+      const y = it.transform?.[5];
+      if (!it.str.trim() && !it.hasEOL) { if (it.str) out += ' '; continue; }
+      if (lastY !== null && y !== undefined && Math.abs(y - lastY) > 2) {
+        out = out.replace(/[ \n]+$/, '');
+        out += Math.abs(y - lastY) > (it.height || 10) * 1.9 ? '\n\n' : '\n';
+      }
+      out += it.str;
+      if (y !== undefined && it.str.trim()) lastY = y;
+    }
+    pages.push(out.trim());
+  }
+  return pages.join('\n\n');
+}
+
 /** Skill matching: unique skills count most; titles in the CV's headline get a strong boost. */
 export function matchPositions(text) {
   const t = ` ${text.toLowerCase().replace(/\s+/g, ' ')} `;

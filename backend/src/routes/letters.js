@@ -4,7 +4,7 @@ import { many, one, query, tx } from '../db.js';
 import { requireRole } from '../auth.js';
 import { audit } from '../audit.js';
 import { decryptBuffer, encryptBuffer } from '../crypto.js';
-import { cvText, positionFromCv } from '../services/cv.js';
+import { cvText, cvReadableText, positionFromCv } from '../services/cv.js';
 import { ah, parse, zDate } from '../util.js';
 import { NDA_VERSION } from '../services/nda.js';
 import { notify } from '../notify.js';
@@ -421,12 +421,25 @@ router.post('/intern/:userId(\\d+)/certificate/revoke', requireRole('admin'), ah
   res.json(await internFor(i.user_id));
 }));
 
+/** Admin: the CV's text, to read it right inside Letters & certificates. */
+router.get('/intern/:userId(\\d+)/cv/text', requireRole('admin'), ah(async (req, res) => {
+  const row = await one('SELECT user_id, cv_enc, cv_name, cv_mime FROM internships WHERE user_id = $1', [userIdParam(req)]);
+  if (!row?.cv_enc) return res.status(404).json({ error: 'No CV uploaded yet.' });
+  let text = '';
+  try { text = await cvReadableText(decryptBuffer(row.cv_enc), row.cv_mime); } catch { /* unreadable */ }
+  await audit(req, 'cv.viewed', 'user', row.user_id, {});
+  // Tidy spacing for reading: no runs of blank lines or spaces
+  text = text.replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  res.json({ text: text.slice(0, 30000), truncated: text.length > 30000 });
+}));
+
+/** Admin: the CV file. ?inline=1 opens it in the browser (PDF); otherwise it downloads. */
 router.get('/intern/:userId(\\d+)/cv', requireRole('admin'), ah(async (req, res) => {
   const row = await one('SELECT user_id, cv_enc, cv_name, cv_mime FROM internships WHERE user_id = $1', [userIdParam(req)]);
   if (!row?.cv_enc) return res.status(404).json({ error: 'No CV uploaded yet.' });
   await audit(req, 'cv.downloaded', 'user', row.user_id, {});
   res.setHeader('Content-Type', row.cv_mime);
-  res.setHeader('Content-Disposition', `attachment; filename="${row.cv_name.replace(/[^\w.\- ]+/g, '_')}"`);
+  res.setHeader('Content-Disposition', `${req.query.inline === '1' && row.cv_mime === 'application/pdf' ? 'inline' : 'attachment'}; filename="${row.cv_name.replace(/[^\w.\- ]+/g, '_')}"`);
   res.setHeader('Cache-Control', 'no-store');
   res.send(decryptBuffer(row.cv_enc));
 }));

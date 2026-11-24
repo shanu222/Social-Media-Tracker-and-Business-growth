@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Award, CheckCircle2, Clock, Copy, Download, ExternalLink, FileSignature, FileText, Lock, Pencil, PenLine, ScrollText, Share2, ShieldCheck, Trash2, Upload, Undo2, Ban } from 'lucide-react';
-import { api, download } from '../api';
+import { api, download, openInNewTab } from '../api';
 import { BRAND } from '../brand';
 import { useAuth, useData, useToast, Loading, ErrorBox, Modal } from '../lib';
 
@@ -358,6 +358,7 @@ function AdminLetters() {
   const { data, error, loading, reload } = useData<AdminData>('/letters/admin');
   const [editLetter, setEditLetter] = useState<Person | null>(null);
   const [editCert, setEditCert] = useState<Person | null>(null);
+  const [viewCv, setViewCv] = useState<Person | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   if (loading && !data) return <Loading />;
@@ -389,18 +390,25 @@ function AdminLetters() {
         {data.people.length === 0 ? <p className="muted panel-pad">Add team members in Settings first.</p> : (
           <div className="table-wrap" style={{ padding: 8 }}>
             <table className="t letters-t">
-              <thead><tr><th>Name</th><th>NDA</th><th>Joining letter</th><th>Certificate</th><th /></tr></thead>
+              <thead><tr><th>Name</th><th>NDA</th><th>CV</th><th>Joining letter</th><th>Certificate</th><th /></tr></thead>
               <tbody>{data.people.map((p) => {
                 const i = p.internship;
                 return (
                   <tr key={p.user_id}>
-                    <td>
-                      <b>{p.nda_name || p.name}</b><div className="faint small">{p.title || p.email}</div>
-                      {i && (i.cv
-                        ? <button className="link-btn small" onClick={() => run(`cv${p.user_id}`, () => download(`/letters/intern/${p.user_id}/cv`, i.cv!.name))}><FileText size={13} /> CV{i.cv.position ? ` · ${i.cv.position}` : ' · no clear position'}</button>
-                        : <div className="faint small">No CV yet</div>)}
-                    </td>
+                    <td><b>{p.nda_name || p.name}</b><div className="faint small">{p.title || p.email}</div></td>
                     <td>{p.nda_signed_at ? <span className="badge badge-good">Signed</span> : <span className="badge badge-warn">Not signed</span>}</td>
+                    <td className="cv-cell">
+                      {i?.cv ? (
+                        <>
+                          <div className="cv-file" title={i.cv.name}><FileText size={14} /> <span>{i.cv.name}</span></div>
+                          <div className="faint small">{fmt(i.cv.uploaded_at)} · {i.cv.position || 'No clear position'}</div>
+                          <div className="cv-btns">
+                            <button className="btn btn-sm" onClick={() => setViewCv(p)}>View</button>
+                            <button className="btn btn-sm btn-ghost" disabled={busy === `cv${p.user_id}`} aria-label={`Download CV of ${p.name}`} onClick={() => run(`cv${p.user_id}`, () => download(`/letters/intern/${p.user_id}/cv`, i.cv!.name))}><Download size={14} /></button>
+                          </div>
+                        </>
+                      ) : <span className="faint">{i ? 'Not uploaded yet' : '—'}</span>}
+                    </td>
                     <td>
                       {!i ? <span className="faint">Not prepared</span> : (
                         <>
@@ -443,8 +451,36 @@ function AdminLetters() {
       </div>
 
       {editLetter && <LetterForm p={editLetter} onClose={() => setEditLetter(null)} onSaved={() => { setEditLetter(null); reload(); }} />}
+      {viewCv && <CvViewer p={viewCv} onClose={() => setViewCv(null)} />}
       {editCert && <CertForm p={editCert} onClose={() => setEditCert(null)} onSaved={() => { setEditCert(null); reload(); }} />}
     </div>
+  );
+}
+
+/** Admin: read a member's CV inside the page, open the original or download it. */
+function CvViewer({ p, onClose }: { p: Person; onClose: () => void }) {
+  const toast = useToast();
+  const cv = p.internship!.cv!;
+  const { data, error } = useData<{ text: string; truncated: boolean }>(`/letters/intern/${p.user_id}/cv/text`);
+  const isPdf = /\.pdf$/i.test(cv.name);
+  const kb = Math.max(1, Math.round(cv.size / 1024));
+  return (
+    <Modal title={`CV — ${p.nda_name || p.name}`} onClose={onClose} wide footer={
+      <>
+        {isPdf && <button className="btn" onClick={() => openInNewTab(`/letters/intern/${p.user_id}/cv?inline=1`).catch((e) => toast(e.message, true))}><ExternalLink size={15} /> Open PDF</button>}
+        <button className="btn" onClick={() => download(`/letters/intern/${p.user_id}/cv`, cv.name).catch((e) => toast(e.message, true))}><Download size={15} /> Download</button>
+        <button className="btn btn-primary" onClick={onClose}>Close</button>
+      </>
+    }>
+      <div className="cv-view-head">
+        <div><FileText size={16} /> <b>{cv.name}</b> <span className="faint small">· {kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`} · uploaded {fmt(cv.uploaded_at)}</span></div>
+        <div className="small">Position from CV: <b>{cv.position || 'no clear match'}</b>{p.internship!.role && <span className="faint"> · on letters: {p.internship!.role.replace(/\s*intern$/i, '')} Intern{cv.role_source === 'admin' ? ' (set by you)' : ''}</span>}</div>
+        {cv.skills.length > 0 && <div className="cv-skills">{cv.skills.map((k) => <span key={k}>{k}</span>)}</div>}
+      </div>
+      {error ? <p className="err-text">{error}</p> : !data ? <Loading /> : data.text
+        ? <pre className="cv-text">{data.text}{data.truncated ? '\n\n…' : ''}</pre>
+        : <p className="muted">The text of this CV can't be shown here. Use {isPdf ? 'Open PDF or ' : ''}Download to see the original.</p>}
+    </Modal>
   );
 }
 

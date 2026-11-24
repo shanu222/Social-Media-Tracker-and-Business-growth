@@ -297,7 +297,7 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 
 ### CV and position
 
-Members must upload their CV (PDF or Word .docx, up to 5 MB) before they can accept or download their joining letter or certificate. It is stored encrypted, and the admin can download it from Letters & certificates.
+Members must upload their CV (PDF or Word .docx, up to 5 MB) before they can accept or download their joining letter or certificate. It is stored encrypted. On Letters & certificates the admin sees a CV column (file, upload date, detected position) with **View** (the CV's text with its skills, plus Open PDF) and **Download**. Every view and download is recorded in the activity log.
 
 - **Position:** the position printed on the letter and certificate is chosen from the CV, using a fixed list of short, standard titles (Software Developer, Mobile App Developer, AI/ML Engineer, Data Analyst, UI/UX Designer, Graphic Designer, Video Editor, Content Writer, Social Media Manager, Digital Marketing Specialist, Business Developer, Project Coordinator, HR Associate, Civil Engineer, GIS Analyst, Research Assistant, Cybersecurity Analyst, DevOps Engineer, QA Engineer, Accountant, Customer Support Specialist), printed with "Intern".
 - **How it's chosen:** when an AI key is set, the AI picks the best title from that list. Otherwise the skills and tools in the CV are matched to each position.

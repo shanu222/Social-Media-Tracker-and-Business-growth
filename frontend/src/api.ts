@@ -73,6 +73,17 @@ export const api = {
   upload: <T>(p: string, form: FormData) => request<T>('POST', p, form, true),
 };
 
+/** Opens an authenticated file (e.g. a PDF) in a new tab without exposing the token in a URL. */
+export async function openInNewTab(path: string) {
+  const win = window.open('', '_blank'); // opened right away so pop-up blockers allow it
+  try {
+    const blob = await request<Blob>('GET', path);
+    const url = URL.createObjectURL(blob);
+    if (win) win.location.href = url; else window.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) { win?.close(); throw e; }
+}
+
 /** Downloads an authenticated file (PDF/CSV) without exposing the token in a URL. */
 export async function download(path: string, filename: string) {
   const blob = await request<Blob>('GET', path);
