@@ -31,6 +31,7 @@ import messageRoutes from './routes/messages.js';
 import { upgradeToProductKpis } from './services/kpiTemplates.js';
 import { upgradeToProductChecklists } from './services/checklistTemplates.js';
 import ndaRoutes, { requireNda } from './routes/nda.js';
+import letterRoutes, { verifyRouter } from './routes/letters.js';
 import teamRoutes, { sendEventReminders } from './routes/team.js';
 import timeRoutes, { capStaleTimers } from './routes/time.js';
 import performanceRoutes from './routes/performance.js';
@@ -63,6 +64,7 @@ app.use(
 app.use(compression());
 // Signature and CNIC images need more room
 app.use('/api/nda', express.json({ limit: '10mb' }));
+app.use('/api/letters', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(
   '/api',
@@ -94,6 +96,8 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+// Public: anyone can check a letter or certificate by its verification code
+app.use('/api/verify', rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false }), verifyRouter);
 
 // Everything below needs a signed-in user who has replaced their first password.
 function requireFreshPassword(req, res, next) {
@@ -113,6 +117,7 @@ app.use('/api/products', auth, productRoutes);
 app.use('/api/tasks', auth, globalTasks);
 app.use('/api/notifications', auth, notificationRoutes);
 app.use('/api/team', auth, teamRoutes);
+app.use('/api/letters', auth, letterRoutes);
 app.use('/api/time', auth, timeRoutes);
 app.use('/api/performance', auth, performanceRoutes);
 app.use('/api/users', auth, userRoutes);

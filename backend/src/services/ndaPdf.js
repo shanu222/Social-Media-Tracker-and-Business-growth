@@ -4,7 +4,7 @@ import { BRAND } from '../brand.js';
 import { NDA_TITLE, NDA_VERSION, ndaSections } from './nda.js';
 
 /** The signed agreement as a branded PDF: letterhead, full text, signature block, evidence footer, watermark. */
-export function renderNdaPdf(sig, signatureBuf) {
+export function renderNdaPdf(sig, signatureBuf, ceoSignature = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margins: { top: 50, bottom: 70, left: 56, right: 56 }, bufferPages: true, info: { Title: `${NDA_TITLE} — ${sig.full_name}`, Author: BRAND.legal } });
     const chunks = [];
@@ -52,7 +52,10 @@ export function renderNdaPdf(sig, signatureBuf) {
     const x2 = L + colW + 30;
     doc.roundedRect(x2, y0, colW, 176, 6).strokeColor('#dfe5ee').lineWidth(1).stroke();
     doc.fillColor('#5b6676').font('Helvetica-Bold').fontSize(8.5).text('FOR THE COMPANY', x2 + 12, y0 + 10);
-    if (hasLogo) doc.image(BRAND.logo, x2 + 12, y0 + 28, { width: 48, height: 48 });
+    if (ceoSignature) {
+      try { doc.image(ceoSignature, x2 + 12, y0 + 26, { fit: [colW - 84, 56], align: 'left', valign: 'bottom' }); } catch { /* unreadable */ }
+      if (hasLogo) doc.save().opacity(0.9).image(BRAND.logo, x2 + colW - 58, y0 + 10, { width: 44, height: 44 }).restore();
+    } else if (hasLogo) doc.image(BRAND.logo, x2 + 12, y0 + 28, { width: 48, height: 48 });
     doc.moveTo(x2 + 12, y0 + 88).lineTo(x2 + colW - 12, y0 + 88).strokeColor('#8a95a5').lineWidth(0.6).stroke();
     doc.fillColor('#0f1b33').font('Helvetica-Bold').fontSize(10).text(BRAND.ceo, x2 + 12, y0 + 94, { width: colW - 24 });
     doc.fillColor('#1b2433').font('Helvetica').fontSize(9).text(BRAND.ceoTitle, x2 + 12, doc.y + 2, { width: colW - 24 }).text(BRAND.legal, { width: colW - 24 });

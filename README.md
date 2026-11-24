@@ -285,6 +285,18 @@ a net-growth chart, all tables, a logo + "CONFIDENTIAL" watermark and a contact 
 - **Confirmations:** recipients press *Got it* / *I'll attend*. The admin sees who has seen and confirmed each item.
 - **Job titles** are free text, set by the admin in Settings → Team, and shown across the app.
 
+## Joining letters and internship certificates
+
+**Letters & certificates** (admin) and **My documents** (team members).
+
+- **CEO signature:** upload once (photo or scan on white paper). The background is removed automatically, and the signature is printed on every NDA, joining letter and certificate. It is stored encrypted.
+- **Joining letter:** the admin enters role, dates, supervisor, notice period and optional stipend. Each letter gets a running reference number (`RTL/HR/INT/2026/0001`) and is printed on the RTL letterhead (`backend/assets/letterhead.jpg`).
+- **Acceptance:** the team member reviews and accepts the letter in Growth Desk. Their NDA signature is then placed on it, with the acceptance date. If the terms change later, they are asked to accept again.
+- **Certificate:** the admin issues it when the internship is complete, with an optional short appreciation. It gets its own number (`RTL/HR/CERT/2026/0001`). It can be withdrawn and restored.
+- **NDA first:** letters and certificates can only be opened or downloaded after the NDA is signed. Anyone who hasn't signed is sent to the NDA screen first.
+- **Verification:** every document has a QR code and a link (`/verify/<code>`) that anyone can open without signing in to confirm it is genuine (or see that it was withdrawn).
+- Every acceptance, download, issue and withdrawal is recorded in the activity log. People are notified in the app and by email when a letter or certificate is ready.
+
 ### Attachments in task comments
 
 When writing a comment or asking for clarification on a task, team members can **Upload document** (PDF, Word, Excel, PowerPoint, images, videos, CSV, ZIP — up to 10 per comment) and **Add Drive link** (Google Drive, Docs, Sheets or any https link). Uploaded files are stored privately in Cloudflare R2 (large files go straight from the browser to R2) and downloaded through short-lived signed links. Every attachment is shown on the comment, added to the task's Content & links and saved in the product library. Emails about the comment list the attachments.

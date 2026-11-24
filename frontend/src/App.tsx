@@ -3,7 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, PenLine, AtSign, ListChecks, Target, NotebookPen, FileBarChart, FolderLock, Settings as Cog, LogOut, Menu,
   Boxes, Inbox, ListTodo,
-  Mail, Phone, Globe, MessagesSquare, Gauge,
+  Mail, Phone, Globe, MessagesSquare, Gauge, FileBadge,
 } from 'lucide-react';
 import { api } from './api';
 import { TimerChip, TimerProvider } from './timer';
@@ -13,6 +13,7 @@ import { BRAND } from './brand';
 import { useAuth, Loading, ROLE_LABEL } from './lib';
 import Notifications from './Notifications';
 import Login from './pages/Login';
+import Documents, { VerifyPage } from './pages/Documents';
 import FirstPassword from './pages/FirstPassword';
 import NdaGate from './pages/NdaGate';
 import Dashboard from './pages/Dashboard';
@@ -42,12 +43,14 @@ function navFor(isAdmin: boolean, unread: number): { group: string; items: Item[
         { to: '/my-work', label: 'My work', icon: Inbox },
         { to: '/messages', label: 'Messages', icon: MessagesSquare, badge: unread },
         { to: '/performance', label: 'Team performance', icon: Gauge },
+        { to: '/letters', label: 'Letters & certificates', icon: FileBadge },
       ]
     : [
         { to: '/', label: 'My work', icon: Inbox, end: true },
         { to: '/products', label: 'My products', icon: Boxes },
         { to: '/messages', label: 'Messages', icon: MessagesSquare, badge: unread },
         { to: '/performance', label: 'My performance', icon: Gauge },
+        { to: '/documents', label: 'My documents', icon: FileBadge },
         { to: '/overview', label: 'Growth overview', icon: LayoutDashboard },
       ];
   return [
@@ -95,6 +98,9 @@ export default function App() {
     return () => clearInterval(t);
   }, [user, loc.pathname]);
 
+  // Public: letter and certificate verification works without signing in
+  const verify = /^\/verify\/([A-Za-z0-9-]{8,20})\/?$/.exec(loc.pathname);
+  if (verify) return <VerifyPage code={verify[1]} />;
   if (!ready) return <Loading />;
   if (!user) return <Login />;
   if (user.must_change_password && user.role === 'admin') return <FirstPassword />;
@@ -166,6 +172,8 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/performance" element={<Performance />} />
+          <Route path="/documents" element={isAdmin ? <Navigate to="/letters" replace /> : <Documents />} />
+          <Route path="/letters" element={isAdmin ? <Documents /> : <Navigate to="/documents" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

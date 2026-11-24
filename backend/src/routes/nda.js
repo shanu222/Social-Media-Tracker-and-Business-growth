@@ -9,6 +9,7 @@ import { NDA_TITLE, NDA_VERSION, ndaSections, ndaHash, normalizeCnic, maskCnic }
 import { renderNdaPdf } from '../services/ndaPdf.js';
 import { notify } from '../notify.js';
 import { emailUserResult, noticeEmail } from '../mailer.js';
+import { getCompanySignature, pngDataUrl } from '../services/letters.js';
 
 /*
  * NDA signing. Everyone except admins must sign the current version before using the workspace
@@ -55,6 +56,11 @@ async function signedFor(userId) {
   return one('SELECT * FROM nda_signatures WHERE user_id = $1 AND version = $2 AND superseded_at IS NULL', [userId, NDA_VERSION]);
 }
 
+/** present() plus the CEO's signature for the "For the Company" box. */
+async function presentFull(sig) {
+  return { ...present(sig), company_signature: pngDataUrl((await getCompanySignature())?.png) };
+}
+
 /** Full view of a signature: decrypted CNIC, contact details and images as data URLs. */
 function present(sig) {
   const cnic = decrypt(sig.cnic_enc);
@@ -89,7 +95,7 @@ router.get('/', ah(async (req, res) => {
       role_title: u.title || (u.role === 'manager' ? 'Social Media Manager' : 'Team Member'),
     },
     sections: ndaSections({ name: u.name, cnic: '_____-_______-_', role: u.title || 'Team Member' }),
-    signature: sig ? present(sig) : null,
+    signature: sig ? await presentFull(sig) : null,
   });
 }));
 
@@ -134,12 +140,12 @@ router.post('/sign', ah(async (req, res) => {
 
   // Email the signed PDF to the signer and to the admins (each keeps a copy)
   emailCopies(sig, admins).catch((e) => console.error('[nda] email copies failed', e.message));
-  res.status(201).json(present(sig));
+  res.status(201).json(await presentFull(sig));
 }));
 
 async function emailCopies(sig, adminIds) {
   const full = present(sig);
-  const pdf = await renderNdaPdf(pdfData(sig, full), decryptBuffer(sig.signature_enc));
+  const pdf = await renderNdaPdf(pdfData(sig, full), decryptBuffer(sig.signature_enc), (await getCompanySignature())?.png);
   const filename = `NDA-${sig.full_name.replace(/[^\w]+/g, '-')}-${new Date(sig.signed_at).toISOString().slice(0, 10)}.pdf`;
   const attachments = [{ filename, content: pdf }];
   const signedOn = new Date(sig.signed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -158,7 +164,7 @@ async function emailCopies(sig, adminIds) {
 const pdfData = (sig, full) => ({ ...sig, cnic: full.cnic, address: full.address, cnicFront: sig.cnic_front_enc ? decryptBuffer(sig.cnic_front_enc) : null, cnicBack: sig.cnic_back_enc ? decryptBuffer(sig.cnic_back_enc) : null });
 
 async function sendPdf(res, sig) {
-  const pdf = await renderNdaPdf(pdfData(sig, present(sig)), decryptBuffer(sig.signature_enc));
+  const pdf = await renderNdaPdf(pdfData(sig, present(sig)), decryptBuffer(sig.signature_enc), (await getCompanySignature())?.png);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="NDA-${sig.full_name.replace(/[^\w]+/g, '-')}-${sig.signed_at.toISOString().slice(0, 10)}.pdf"`);
   res.send(pdf);
@@ -186,7 +192,7 @@ router.get('/user/:userId(\\d+)', requireRole('admin'), ah(async (req, res) => {
   const sig = await signedFor(Number(req.params.userId));
   if (!sig) return res.status(404).json({ error: 'Not signed yet.' });
   await audit(req, 'nda.viewed', 'user', req.params.userId);
-  res.json(present(sig));
+  res.json(await presentFull(sig));
 }));
 
 router.get('/user/:userId(\\d+)/pdf', requireRole('admin'), ah(async (req, res) => {
@@ -230,7 +236,7 @@ router.get('/record/:id(\\d+)', requireRole('admin'), ah(async (req, res) => {
   const sig = await recordById(req, res);
   if (!sig) return;
   await audit(req, 'nda.viewed', 'user', sig.user_id, { record: sig.id });
-  res.json({ ...present(sig), superseded_at: sig.superseded_at, reset_reason: sig.reset_reason, current: !sig.superseded_at && sig.version === NDA_VERSION });
+  res.json({ ...(await presentFull(sig)), superseded_at: sig.superseded_at, reset_reason: sig.reset_reason, current: !sig.superseded_at && sig.version === NDA_VERSION });
 }));
 
 router.get('/record/:id(\\d+)/pdf', requireRole('admin'), ah(async (req, res) => {

@@ -5,6 +5,7 @@ export interface SignedNda {
   id: number; user_id: number; version: string; full_name: string; guardian: string | null; role_title: string | null;
   cnic: string; signed_at: string; ip: string | null; doc_hash: string; signature: string; sections: NdaSection[];
   typed_name?: string | null; phone?: string | null; address?: string | null; cnic_front?: string | null; cnic_back?: string | null;
+  company_signature?: string | null;
 }
 
 /** The agreement as a letter. With `signed`, it includes the signature block. */
@@ -43,7 +44,9 @@ export function NdaLetter({ title, sections, signed }: { title: string; sections
           </div>
           <div className="nda-sign-box">
             <span className="lbl">For the Company</span>
-            <img src={BRAND.logo} alt="" className="seal" />
+            {signed.company_signature
+              ? <div className="nda-co-sig"><img src={signed.company_signature} alt={`Signature of ${BRAND.ceo}`} /><img src={BRAND.logo} alt="" className="seal-sm" /></div>
+              : <img src={BRAND.logo} alt="" className="seal" />}
             <div className="line" />
             <b>{BRAND.ceo}</b>
             <span>{BRAND.ceoTitle}</span>

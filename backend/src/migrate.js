@@ -493,6 +493,43 @@ ALTER TABLE nda_signatures DROP CONSTRAINT IF EXISTS nda_signatures_user_id_vers
 CREATE UNIQUE INDEX IF NOT EXISTS nda_active_uq ON nda_signatures(user_id, version) WHERE superseded_at IS NULL;
 -- Comments can carry links (Google Drive, Docs…) and uploaded files (stored in R2, listed in "files")
 ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- Company assets such as the CEO's signature (encrypted), used on the NDA, joining letters and certificates
+CREATE TABLE IF NOT EXISTS company_assets (
+  key TEXT PRIMARY KEY,
+  data_enc BYTEA NOT NULL,
+  mime TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Running reference numbers per document type and year (RTL/HR/INT/2026/0001); never reused
+CREATE TABLE IF NOT EXISTS doc_counters (kind TEXT NOT NULL, year INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (kind, year));
+-- Internship joining letter and completion certificate, one per person
+CREATE TABLE IF NOT EXISTS internships (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  supervisor_name TEXT NOT NULL,
+  supervisor_title TEXT,
+  notice_days INTEGER NOT NULL DEFAULT 7,
+  stipend TEXT,
+  letter_ref TEXT NOT NULL UNIQUE,
+  letter_date DATE NOT NULL,
+  letter_code TEXT NOT NULL UNIQUE,
+  accepted_at TIMESTAMPTZ,
+  accepted_ip TEXT,
+  accepted_nda_id INTEGER REFERENCES nda_signatures(id) ON DELETE SET NULL,
+  cert_ref TEXT UNIQUE,
+  cert_code TEXT UNIQUE,
+  cert_issued_on DATE,
+  cert_completed_on DATE,
+  cert_remark TEXT,
+  cert_revoked_at TIMESTAMPTZ,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 -- Checklists per product (product_id NULL = company-wide); tpl_key ties a task to its routine template
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE CASCADE;
 ALTER TABLE checklist_tasks ADD COLUMN IF NOT EXISTS tpl_key TEXT;
